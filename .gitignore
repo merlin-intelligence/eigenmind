@@ -1,0 +1,31 @@
+# Environment and binaries
+venv/
+eigenmind-venv/
+.env
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+
+# User-specific runtime data (per-user credentials, history, downloads)
+user_data/
+data/
+
+# Project specific data (Large files)
+downloaded_corpus/
+qdrant_storage/
+temp_graph_outputs/
+
+# Secrets and credentials
+.streamlit/secrets.toml
+gdrive_token.json
+*.json
+
+# Logs and tracking
+*.log
+history_*.txt
+processed_files.log
+
+# OS files
+.DS_Store

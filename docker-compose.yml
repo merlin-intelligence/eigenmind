@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: eigenmind_qdrant
+    restart: always
+    network_mode: host    
+    volumes:
+      - /home/foustry/qdrant_storage/qdrant_storage:/qdrant/storage
+
+volumes:
+  qdrant_storage:

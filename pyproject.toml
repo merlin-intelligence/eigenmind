@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eigenmind"
+version = "0.2.0"
+description = "Graph-based RAG over a Qdrant corpus, with Streamlit UI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "streamlit",
+    "qdrant-client",
+    "sentence-transformers",
+    "torch",
+    "transformers",
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "pyvis",
+    "spacy",
+    "nltk",
+    "langchain-text-splitters",
+    "pypdf",
+    "python-docx",
+    "python-pptx",
+    "openpyxl",
+    "chunknorris",
+    "requests",
+    "python-dotenv",
+]
+
+[project.optional-dependencies]
+ocr = ["pytesseract", "pdf2image"]
+gdrive = ["google-api-python-client", "google-auth-httplib2", "google-auth-oauthlib"]
+sharepoint = ["Office365-REST-Python-Client"]
+dev = ["pytest"]
+
+[project.scripts]
+eigenmind-ingest = "eigenmind.scripts.ingest_recursive:main"
+
+[tool.setuptools.packages.find]
+include = ["eigenmind*"]
+exclude = ["legacy*", "tests*", "scripts*", "pages*"]
