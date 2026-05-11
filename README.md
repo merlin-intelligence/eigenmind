@@ -65,5 +65,9 @@ Secrets come from `.env` or `.streamlit/secrets.toml` (see `.env.example`).
 The HuggingFace token is **never** hard-coded — set `HF_TOKEN` in your env if
 you need a gated local LLM.
 
+## Contributing
+
+Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) before opening an issue or a pull request — it covers the workflow, naming conventions, and a few basic rules that keep collaboration smooth.
+
 ---
-© 2025 Prax Value Eurl (PxV)
+© 2026 Merlin Intelligence
