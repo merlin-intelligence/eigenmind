@@ -29,6 +29,10 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 
 Please refer to the [Architecture and Installation Guide](architecture_and_installation_guide.md) for detailed instructions on deploying the Qdrant database, installing dependencies, and configuring API keys.
 
+## Production Deployment
+
+For running Eigenmind as a long-lived service on a Google Cloud Compute Engine VM — including project creation, VM provisioning, firewall setup, `systemd` service installation, and the manual update procedure when the `main` branch evolves — see the [Eigenmind Production Deployment Guide](DEPLOYMENT_GUIDE_EIGENMIND.md).
+
 ## Project layout (v0.2)
 
 ```
