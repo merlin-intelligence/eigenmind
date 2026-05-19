@@ -43,7 +43,15 @@ git commit -m "(feat:auth) Add SSO login form"
 git push origin feat/add-sso-login
 ```
 
-Make sure your code is tested locally and that existing tests still pass before moving on.
+Make sure your code is tested locally, that existing tests still pass, and that the linter is clean before moving on.
+
+```bash
+pytest tests/
+ruff check .
+ruff format --check .
+```
+
+See the [Code style and linting](#code-style-and-linting) section below for setup details.
 
 **Keep your branch up to date with `main`.** If your branch lives for more than a day or two, regularly rebase it on top of `main` so you work with the latest code and limit the size of future conflicts:
 
@@ -172,6 +180,60 @@ A PR must be **functional and tested** before requesting a merge:
 - Lint/format checks pass.
 
 If a PR is still a work in progress, mark it as a **draft** so reviewers know it's not ready yet.
+
+### Code style and linting
+
+We use [Ruff](https://docs.astral.sh/ruff/) as both linter and formatter. Its configuration lives in [`pyproject.toml`](pyproject.toml) under the `[tool.ruff]` sections — any contributor who installs the dev dependencies gets the same rules.
+
+#### Installation
+
+Ruff is part of the `dev` optional dependencies of the project. Install it (along with the other dev tools like `pytest`) with:
+
+```bash
+pip install -e ".[dev]"
+```
+
+You can also install Ruff on its own if you only need the linter:
+
+```bash
+pip install ruff
+```
+
+Check that the install worked:
+
+```bash
+ruff --version
+```
+
+#### Daily usage
+
+Run these commands from the repository root:
+
+```bash
+# Lint the whole project (report only)
+ruff check .
+
+# Lint and auto-fix what can be fixed safely
+ruff check . --fix
+
+# Check formatting (no changes written)
+ruff format --check .
+
+# Apply formatting
+ruff format .
+```
+
+Before opening a PR, make sure both `ruff check .` and `ruff format --check .` pass — these are the same checks reviewers will expect to see green.
+
+#### Editor integration (optional)
+
+Most editors have a Ruff plugin that runs the linter and formatter on save:
+
+- **VS Code**: [Ruff extension](https://marketplace.visualstudio.com/items?itemName=charliermarsh.ruff)
+- **PyCharm / IntelliJ**: [Ruff plugin](https://plugins.jetbrains.com/plugin/20574-ruff)
+- **Neovim**: via `ruff-lsp` or `none-ls`
+
+The plugins pick up the project configuration automatically from `pyproject.toml`, so there is nothing extra to configure.
 
 ### One issue, one branch, one PR
 

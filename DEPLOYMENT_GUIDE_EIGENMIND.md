@@ -121,9 +121,6 @@ sudo apt-get update && sudo apt-get upgrade -y
 # Python 3.10+, build tooling, virtualenv
 sudo apt-get install -y python3 python3-venv python3-pip build-essential git
 
-# Tesseract OCR (recommended for scanned PDFs)
-sudo apt-get install -y tesseract-ocr
-
 # Docker Engine + Compose plugin
 sudo apt-get install -y ca-certificates curl gnupg
 sudo install -m 0755 -d /etc/apt/keyrings

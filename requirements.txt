@@ -16,6 +16,7 @@ pandas
 openpyxl
 pdf2image
 pytesseract
+pytest
 pyvis
 spacy
 scipy
