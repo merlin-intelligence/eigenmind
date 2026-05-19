@@ -1,0 +1,25 @@
+[Unit]
+Description=Eigenmind Streamlit App
+After=network.target
+
+[Service]
+# User and Group should be adjusted to match the target environment
+User=...
+Group=...
+Type=simple
+
+# Update WorkingDirectory to the absolute path of the eigenmind repository
+WorkingDirectory=...
+
+# ExecStart assumes a virtualenv named 'venv' exists in the repository root
+ExecStart=.../venv/bin/python -m streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+
+Restart=always
+RestartSec=10
+
+# Logs are appended to streamlit.log in the working directory
+StandardOutput=append:.../streamlit.log
+StandardError=append:.../streamlit.log
+
+[Install]
+WantedBy=multi-user.target
