@@ -42,7 +42,7 @@ eigenmind/                  importable package
 └── ui/                     Streamlit-only code (auth, components, styles)
 
 streamlit_app.py            entry point — `streamlit run streamlit_app.py`
-pages/                      Streamlit multipage navigation (Ingest, Chat, Graph Explorer, Manage)
+pages/                      Streamlit multipage navigation (Eigenmind Cognitive Maps, /enrich corpus/, /ask/, /explore graphs/, /manage/)
 scripts/ingest_recursive.py CLI ingestion (also exposed as `eigenmind-ingest`)
 tests/unit/                 pure-numpy graph-math tests
 legacy/                     pre-refactor flat scripts, kept for reference
