@@ -28,7 +28,7 @@ if not check_password():
     st.stop()
 sb = render_sidebar()
 
-section_header("Query Experience", "hybrid RAG · graph + similarity")
+section_header("/ask/", "hybrid RAG · graph + similarity")
 
 if not sb.is_connected:
     empty_state("⚡", "Qdrant offline.")
@@ -38,7 +38,7 @@ store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
 existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
 
 if not existing_cols:
-    empty_state("📂", "No collections found. Ingest documents in <strong>Ingest</strong> first.")
+    empty_state("📂", "No collections found. Ingest documents in <strong>/enrich corpus/</strong> first.")
     st.stop()
 
 col_q1, col_q2 = st.columns([1, 2])

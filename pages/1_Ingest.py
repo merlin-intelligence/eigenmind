@@ -50,7 +50,7 @@ if not check_password():
     st.stop()
 sb = render_sidebar()
 
-section_header("Ingest Documents", "build your corpus")
+section_header("/enrich corpus/", "build your corpus")
 
 if not sb.is_connected:
     empty_state("⚡", "Qdrant is offline. Start it with <code>docker-compose up -d</code> and refresh.")

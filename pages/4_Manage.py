@@ -20,7 +20,7 @@ if not check_password():
     st.stop()
 sb = render_sidebar()
 
-section_header("Document Management", "list and delete embedded docs")
+section_header("/manage/", "list and delete embedded docs")
 
 if not sb.is_connected:
     empty_state("⚡", "Qdrant offline.")

@@ -141,10 +141,10 @@ Navigate between pages from the Streamlit sidebar:
 
 | Page | Purpose |
 |---|---|
-| `pages/1_Ingest.py` | Build / extend a corpus from local dirs, Google Drive, SharePoint |
-| `pages/2_Chat.py`   | Hybrid RAG question answering against a selected collection |
-| `pages/3_Graph_Explorer.py` | Subgraph view (Singular / Hinge / Theta nodes) |
-| `pages/4_Manage.py` | List & delete documents per ingestion date |
+| `pages/1_Ingest.py`         | `/enrich corpus/` - Build / extend a corpus from local dirs, Google Drive, SharePoint |
+| `pages/2_Chat.py`           | `/ask/` - Hybrid RAG question answering against a selected collection |
+| `pages/3_Graph_Explorer.py` | `/explore graphs/` - Subgraph view (Singular / Hinge / Theta nodes) |
+| `pages/4_Manage.py`         | `/manage/` - List & delete documents per ingestion date |
 
 ### CLI ingestion (no UI)
 

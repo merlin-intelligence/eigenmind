@@ -26,7 +26,7 @@ if not check_password():
     st.stop()
 sb = render_sidebar()
 
-section_header("Knowledge Graph", "map your insights")
+section_header("/explore graphs/", "map your insights")
 
 if not sb.is_connected:
     empty_state("⚡", "Qdrant offline.")
@@ -36,7 +36,7 @@ store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
 existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
 
 if not existing_cols:
-    empty_state("📂", "No collections found. Go to <strong>Ingest</strong> to ingest documents first.")
+    empty_state("📂", "No collections found. Go to <strong>/enrich corpus/</strong> to ingest documents first.")
     st.stop()
 
 col_e1, col_e2 = st.columns([1, 2])
