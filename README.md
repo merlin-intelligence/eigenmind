@@ -25,13 +25,17 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 - **CPU-First**: Switched to CPU-only PyTorch by default for broad compatibility and predictable memory usage.
 - **Persistent Storage**: All ingested data and vector embeddings are stored persistently in the `qdrant_storage/` directory.
 
+## Background
+
+For an illustrated overview of the Cognitive Maps approach behind Eigenmind — what they are, why they matter, and how the app turns a corpus into navigable knowledge — see [Eigenmind — Cognitive Maps (PDF)](docs/260522_Eigenmind_Cognitive%20Maps.pdf).
+
 ## Getting Started
 
-Please refer to the [Architecture and Installation Guide](architecture_and_installation_guide.md) for detailed instructions on deploying the Qdrant database, installing dependencies, and configuring API keys.
+Please refer to the [Architecture and Installation Guide](docs/ARCHITECTURE_AND_INSTALLATION_GUIDE.md) for detailed instructions on deploying the Qdrant database, installing dependencies, and configuring API keys.
 
 ## Production Deployment
 
-For running Eigenmind as a long-lived service on a Google Cloud Compute Engine VM — including project creation, VM provisioning, firewall setup, `systemd` service installation, and the manual update procedure when the `main` branch evolves — see the [Eigenmind Production Deployment Guide](DEPLOYMENT_GUIDE_EIGENMIND.md).
+For running Eigenmind as a long-lived service on a Google Cloud Compute Engine VM — including project creation, VM provisioning, firewall setup, `systemd` service installation, and the manual update procedure when the `main` branch evolves — see the [Eigenmind Production Deployment Guide](docs/DEPLOYMENT_GUIDE_EIGENMIND.md).
 
 ## Project layout (v0.2)
 
@@ -71,7 +75,7 @@ you need a gated local LLM.
 
 ## Contributing
 
-Contributions are welcome! Please read the [Contributing Guide](CONTRIBUTING.md) before opening an issue or a pull request — it covers the workflow, naming conventions, and a few basic rules that keep collaboration smooth.
+Contributions are welcome! Please read the [Contributing Guide](docs/CONTRIBUTING.md) before opening an issue or a pull request — it covers the workflow, naming conventions, and a few basic rules that keep collaboration smooth.
 
 ---
 © 2026 Merlin Intelligence

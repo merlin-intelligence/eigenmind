@@ -168,7 +168,7 @@ docker ps | grep qdrant   # verify
 ```
 
 ### 3.6 Configure secrets
-Pick one of the two paths described in the [Architecture & Installation Guide](architecture_and_installation_guide.md#step-4-configure-api-keys-secrets):
+Pick one of the two paths described in the [Architecture & Installation Guide](ARCHITECTURE_AND_INSTALLATION_GUIDE.md#step-4-configure-api-keys-secrets):
 
 ```bash
 # Option A — .env at the repo root
