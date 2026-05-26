@@ -1,3 +1,6 @@
+The software is licensed under MIT.
+
+The Eigenmind and Merlin Intelligence names, logos and branding are not covered by the MIT license and may not be used without permission.
 # Eigenmind - /accelerate clarity/
 
 Eigenmind is a sophisticated knowledge management and exploration application built with Streamlit. It leverages a local Vector Database (Qdrant via Docker) and advanced AI models (via Nebius AI) to ingest, map, and query your proprietary document corpus.
