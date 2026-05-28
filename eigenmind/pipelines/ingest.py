@@ -8,6 +8,7 @@ callers don't pass it to every method. Two strategies are exposed:
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import os
 import traceback
@@ -65,15 +66,29 @@ class Ingester:
         device: str | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
         history_file: str | None = None,
+        embedder: EmbeddingModel | None = None,
     ):
         self.store = store or QdrantStore()
         self.device = device or detect_device()
         self.progress_callback = progress_callback
         self.history_file = history_file
         self.logs: list[str] = []
+        # If an embedder is injected (e.g. from a Streamlit cache_resource), reuse it
+        # without taking ownership — caller controls its lifecycle.
+        self._injected_embedder = embedder
 
     def _log(self, msg: str) -> None:
         self.logs.append(msg)
+
+    @contextlib.contextmanager
+    def _embedder_scope(self, log):
+        """Yield an embedder, reusing the injected one or loading+releasing a fresh one."""
+        if self._injected_embedder is not None:
+            yield self._injected_embedder
+            return
+        log(f"Loading embedding model on {self.device}...")
+        with EmbeddingModel(device=self.device) as embedder:
+            yield embedder
 
     # ─── strategy 1: ChunkNorris (PDF only) ────────────────────────
 
@@ -100,8 +115,7 @@ class Ingester:
             return self.logs
         log(f"Total new PDF files to process: {len(files)}")
 
-        log(f"Loading embedding model on {self.device}...")
-        with EmbeddingModel(device=self.device) as embedder:
+        with self._embedder_scope(log) as embedder:
             total = self.store.batched_upsert(
                 collection,
                 self._chunknorris_points(files, pipeline, embedder, log),
@@ -125,7 +139,7 @@ class Ingester:
                     text = chunk.get_text()
                     if not text.strip():
                         continue
-                    yield make_point(fname, i, text, embedder.encode(text).tolist(), ingestion_date)
+                    yield make_point(fname, i, text, embedder.encode_passage(text).tolist(), ingestion_date)
             except Exception as e:  # noqa: BLE001
                 log(f"  -> Error processing {fp}: {e}")
                 log(f"  -> Traceback: {traceback.format_exc()}")
@@ -139,7 +153,7 @@ class Ingester:
         self.logs = []
         log = self._log
 
-        with EmbeddingModel(device=self.device) as embedder:
+        with self._embedder_scope(log) as embedder:
             self.store.ensure_collection(collection, embedder.dim)
             skip = self.store.existing_filenames(collection)
             if skip:
@@ -177,7 +191,7 @@ class Ingester:
                     continue
                 ingestion_date = datetime.datetime.now().isoformat()
                 for i, chunk_text in enumerate(chunker.split_text(full_text)):
-                    yield make_point(fname, i, chunk_text, embedder.encode(chunk_text).tolist(), ingestion_date)
+                    yield make_point(fname, i, chunk_text, embedder.encode_passage(chunk_text).tolist(), ingestion_date)
             except Exception as e:  # noqa: BLE001
                 log(f"  -> Error processing {fp}: {e}")
                 log(f"  -> Traceback: {traceback.format_exc()}")

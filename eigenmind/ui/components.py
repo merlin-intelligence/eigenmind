@@ -12,6 +12,7 @@ import torch
 from spacy.cli import download as spacy_download
 
 from eigenmind.config import nebius_api_key as env_nebius_key
+from eigenmind.core.embeddings import EmbeddingModel
 from eigenmind.ui.auth import current_user, hash_password, load_user_db, save_user_db
 from eigenmind.vectordb.store import QdrantStore
 
@@ -36,6 +37,17 @@ def load_nlp():
         model = spacy.load("en_core_web_sm")
     nltk.download("stopwords", quiet=True)
     return model
+
+
+@st.cache_resource
+def get_embedder(device: str) -> EmbeddingModel:
+    """Process-wide cached embedding model.
+
+    Streamlit's ``cache_resource`` keeps a single instance per (device,) key for the
+    lifetime of the server process — shared across all sessions and users. Do not
+    ``release()`` the returned instance; let the cache own its lifecycle.
+    """
+    return EmbeddingModel(device=device)
 
 
 def _detect_devices() -> list[str]:

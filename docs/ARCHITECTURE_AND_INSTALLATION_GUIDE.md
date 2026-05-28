@@ -4,7 +4,7 @@
 
 *   **Frontend**: Streamlit multipage app (`streamlit_app.py` + `pages/`)
 *   **Vector Database**: Qdrant (Running locally via Docker)
-*   **Embeddings**: SentenceTransformers (`all-MiniLM-L6-v2` running locally on CPU/CUDA/MPS)
+*   **Embeddings**: SentenceTransformers (`intfloat/multilingual-e5-base`, 768-dim, multilingual). E5 `query:` / `passage:` prefixes are applied automatically by the wrapper in `eigenmind/core/embeddings.py`. Runs locally on CPU/CUDA/MPS, and is cached process-wide (single instance shared across all Streamlit sessions and users).
 *   **LLM Provider**: Nebius AI (Llama, Kimi, OSS models) via REST API
 *   **Processing**: NLTK (Key Concept Extraction), Langchain (Chunking), NetworkX (Graph Mathematics)
 *   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
@@ -111,12 +111,12 @@ When both sources are present, `st.secrets` takes precedence over `.env`.
 Eigenmind is optimized to run on resource-constrained environments (e.g., 4GB RAM VMs).
 
 ### 1. Memory Management
-- **Delayed Loading**: Models (SentenceTransformers) are only loaded into memory when an ingestion or query task is initiated.
-- **Garbage Collection**: The app explicitly triggers Python's garbage collector and clears the PyTorch cache after memory-intensive operations.
-- **CPU-First**: By default, the app uses CPU-only PyTorch to ensure stability and avoid GPU-related memory overhead on low-end systems.
+- **Shared Model Cache**: The SentenceTransformer is loaded once on first use via `@st.cache_resource` (see `get_embedder()` in `eigenmind/ui/components.py`) and kept resident in the Streamlit server process. The same ~300 MB instance is reused across **all sessions and all users** of the service — no per-request reload, no per-user copy. The cache is released only when the process exits (e.g. `systemctl restart eigenmind`).
+- **CLI Ingestion**: When the embedder is not injected (e.g. `eigenmind-ingest` from the CLI), the ingester falls back to a scoped `with EmbeddingModel(...)` that releases the model and clears the PyTorch cache at end of run.
+- **CPU-First**: By default, the app uses CPU-only PyTorch to ensure stability and avoid GPU-related memory overhead on low-end systems. CUDA / MPS are auto-detected when available.
 
 ### 2. Swap File Recommendation (Linux)
-If running on a system with 4GB RAM or less, it is highly recommended to configure a swap file to prevent OOM (Out Of Memory) crashes during embedding:
+If running on a system with 4GB RAM or less, it is highly recommended to configure a swap file to absorb the cold-start spike (model download + load) and prevent OOM (Out Of Memory) crashes during embedding. Note that once the model is loaded, it stays resident — peak memory is reached on first request, not steadily during use.
 
 ```bash
 sudo fallocate -l 3.3G /swapfile

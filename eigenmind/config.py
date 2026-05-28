@@ -26,8 +26,8 @@ if load_dotenv is not None:
 
 
 # ── Embedding ──
-EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
-EMBEDDING_DIM_DEFAULT = 384
+EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-base"
+EMBEDDING_DIM_DEFAULT = 768
 
 # ── Chunking ──
 CHUNK_SIZE = 300

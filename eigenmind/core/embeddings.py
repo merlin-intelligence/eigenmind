@@ -35,8 +35,22 @@ class EmbeddingModel:
         self._model = SentenceTransformer(model_name, device=self.device)
 
     def encode(self, text: str | list[str]) -> np.ndarray:
-        """Encode one or more strings to a (batch of) embedding vector(s)."""
+        """Encode one or more strings to a (batch of) embedding vector(s).
+
+        Raw passthrough — does NOT apply E5 prefixes. Prefer
+        :meth:`encode_query` / :meth:`encode_passage` for retrieval workloads.
+        """
         return self._model.encode(text)
+
+    def encode_query(self, text: str | list[str]) -> np.ndarray:
+        """Encode a search query. Applies the ``"query: "`` prefix expected by E5."""
+        prefixed = f"query: {text}" if isinstance(text, str) else [f"query: {t}" for t in text]
+        return self._model.encode(prefixed)
+
+    def encode_passage(self, text: str | list[str]) -> np.ndarray:
+        """Encode a passage for indexing. Applies the ``"passage: "`` prefix expected by E5."""
+        prefixed = f"passage: {text}" if isinstance(text, str) else [f"passage: {t}" for t in text]
+        return self._model.encode(prefixed)
 
     @property
     def dim(self) -> int:

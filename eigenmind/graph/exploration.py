@@ -20,7 +20,7 @@ def explore_graph_for_context(
 
     Returns (retrieved_points_with_vectors, top_sources_details).
     """
-    query_vector = embedding_model.encode(prompt).tolist()
+    query_vector = embedding_model.encode_query(prompt).tolist()
 
     collected_ids: set = set()
     frontier: deque = deque()
