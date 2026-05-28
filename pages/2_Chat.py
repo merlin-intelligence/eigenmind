@@ -6,7 +6,6 @@ import tempfile
 
 import streamlit as st
 
-from eigenmind.core.embeddings import EmbeddingModel
 from eigenmind.pipelines.rag import GraphExplorer
 from eigenmind.ui.auth import (
     check_password,
@@ -16,6 +15,7 @@ from eigenmind.ui.auth import (
 from eigenmind.ui.components import (
     NebiusClient,
     empty_state,
+    get_embedder,
     load_nlp,
     render_sidebar,
     section_header,
@@ -89,9 +89,10 @@ def _run_query() -> None:
         try:
             qdrant_col = qdrant_collection_for(collection_name)
 
+            embedder = get_embedder(sb.selected_device)
+
             # 1. Similarity retrieval
-            with EmbeddingModel(device=sb.selected_device) as embedder:
-                query_vec = embedder.encode(prompt).tolist()
+            query_vec = embedder.encode_query(prompt).tolist()
             sim_chunks = store.similarity_search(qdrant_col, query_vec, limit=num_similar)
             for c in sim_chunks:
                 c["source_type"] = "Similarity Search"
@@ -99,7 +100,7 @@ def _run_query() -> None:
 
             # 2. Graph retrieval (singular/hinge/theta)
             with tempfile.TemporaryDirectory() as tmp_dir:
-                explorer = GraphExplorer(load_nlp(), store=store, device=sb.selected_device)
+                explorer = GraphExplorer(load_nlp(), store=store, embedder=embedder)
                 artifacts = explorer.explore(qdrant_col, prompt, output_dir=tmp_dir)
 
                 added = 0

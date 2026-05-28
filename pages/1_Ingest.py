@@ -20,6 +20,7 @@ from eigenmind.ui.auth import (
 )
 from eigenmind.ui.components import (
     empty_state,
+    get_embedder,
     info_box,
     metric_card,
     render_sidebar,
@@ -81,7 +82,7 @@ if mode == "Select Existing":
         c1, c2, c3 = st.columns(3)
         c1.markdown(metric_card("vectors stored", f"{pt_count:,}", "in this collection"),
                     unsafe_allow_html=True)
-        c2.markdown(metric_card("vector dims", str(vec_size), "all-MiniLM-L6-v2"),
+        c2.markdown(metric_card("vector dims", str(vec_size), "intfloat/multilingual-e5-base"),
                     unsafe_allow_html=True)
         c3.markdown(metric_card("index status", "active", "cosine distance",
                                 value_style="font-size:1.3rem;color:#3d7a4a"),
@@ -118,7 +119,8 @@ def _run_ingest(directories_path: str, *, label: str = "embedding") -> None:
             )
 
     ingester = Ingester(store=store, device=sb.selected_device,
-                        progress_callback=cb, history_file=history_file)
+                        progress_callback=cb, history_file=history_file,
+                        embedder=get_embedder(sb.selected_device))
     with st.spinner("vectorising your documents…"):
         logs = ingester.run_chunknorris(directories_path, qdrant_collection_for(collection_name))
     st.success(f"✓ {label.capitalize()} complete!")

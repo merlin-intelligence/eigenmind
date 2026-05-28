@@ -14,6 +14,7 @@ from eigenmind.ui.auth import (
 )
 from eigenmind.ui.components import (
     empty_state,
+    get_embedder,
     load_nlp,
     render_sidebar,
     section_header,
@@ -65,7 +66,7 @@ if st.button("▶ generate graph", type="primary"):
         with st.spinner("building knowledge graph…"):
             try:
                 with tempfile.TemporaryDirectory() as tmp_dir:
-                    explorer = GraphExplorer(load_nlp(), store=store, device=sb.selected_device)
+                    explorer = GraphExplorer(load_nlp(), store=store, embedder=get_embedder(sb.selected_device))
                     art = explorer.explore(
                         qdrant_collection_for(collection_name), prompt, output_dir=tmp_dir,
                     )

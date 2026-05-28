@@ -61,7 +61,7 @@ class LocalLLMRAG:
     def answer(self, collection_name: str, prompt: str) -> tuple[str, list[str]]:
         """Run the full pipeline and return ``(answer, formatted_references)``."""
         retrieved, top_sources = explore_graph_for_context(
-            collection_name, prompt, self.store.client, self.embedder.raw,
+            collection_name, prompt, self.store.client, self.embedder,
             max_chunks=MAX_CHUNKS_FOR_CONTEXT, neighbors_to_fetch=NEIGHBORS_TO_FETCH,
         )
 
@@ -182,7 +182,7 @@ class GraphExplorer:
     ) -> ExplorerArtifacts:
         os.makedirs(output_dir, exist_ok=True)
 
-        query_vector = self.embedder.encode(prompt).tolist()
+        query_vector = self.embedder.encode_query(prompt).tolist()
         retrieved, initial_point_ids = explore_graph_with_initial_set(
             collection_name, query_vector, self.store.client, MAX_CHUNKS,
         )

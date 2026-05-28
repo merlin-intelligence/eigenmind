@@ -12,7 +12,7 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
    - Direct synchronization with Google Drive (OAuth or Service Account).
    - Direct synchronization with Microsoft SharePoint.
    - **Smart Resume**: File-level resume feature using Qdrant filename tracking to skip already processed documents.
-   - Local embedding utilizing `sentence-transformers`.
+   - Local multilingual embedding (`intfloat/multilingual-e5-base`, 768-dim) via `sentence-transformers`, with the E5 `query:` / `passage:` prefixes applied automatically.
 
 2. **Knowledge Graph Navigation (`/navigate your experience/`)**
    - Generates interactive subgraphs of knowledge relationships based on specific prompts.
@@ -24,8 +24,9 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 
 ## Stability & Performance
 
-- **Memory Optimized**: Designed for systems with limited RAM (e.g., 4GB). Features delayed model loading, explicit garbage collection, and a 3.3GB swap file configuration for stability.
-- **CPU-First**: Switched to CPU-only PyTorch by default for broad compatibility and predictable memory usage.
+- **Shared Model Cache**: The embedding model is loaded once on first use and kept resident in the Streamlit process via `@st.cache_resource` — a single ~300 MB copy is reused across all sessions and users of the same service.
+- **CPU-First**: CPU-only PyTorch by default for broad compatibility and predictable memory usage; CUDA / MPS auto-detected when available.
+- **Cold-Start Buffer**: On 4 GB-RAM VMs a 3.3 GB swap file is recommended to absorb the first-load spike (model download + load). See the [Deployment Guide](docs/DEPLOYMENT_GUIDE_EIGENMIND.md).
 - **Persistent Storage**: All ingested data and vector embeddings are stored persistently in the `qdrant_storage/` directory.
 
 ## Background
