@@ -22,6 +22,12 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
    - Hybrid Retrieval-Augmented Generation (RAG) using both standard semantic similarity and singular chunk analysis.
    - Interacts with remote LLMs (Llama 3.3, Kimi 2.5, OpenAI OSS 120B) hosted on Nebius AI endpoints.
 
+4. **Corpus Analysis (`/analyze corpus/`)**
+   - Document inventory by type, character-length distribution, and a TF-IDF-stopworded wordcloud.
+   - **Embedding-based topic modeling**: KMeans on the mean per-document embedding (reused from Qdrant — no re-encoding), `k` chosen by silhouette (cosine) over `[2..20]`. Cluster keywords are extracted *post-hoc* by TF-IDF so the partition stays semantic while the labels stay readable.
+   - 2D PCA map coloured by cluster + pie-chart of cluster distribution.
+   - Near-duplicate detection: only document pairs with cosine similarity ≥ 0.99 are surfaced, each flagged as **near-duplicate** and ranked by descending score.
+
 ## Stability & Performance
 
 - **Shared Model Cache**: The embedding model is loaded once on first use and kept resident in the Streamlit process via `@st.cache_resource` — a single ~300 MB copy is reused across all sessions and users of the same service.
@@ -46,7 +52,7 @@ For running Eigenmind as a long-lived service on a Google Cloud Compute Engine V
 ```
 eigenmind/                  importable package
 ├── config.py               single source of truth for constants and env-based secrets
-├── core/                   embeddings, LLM, chunking, document loaders
+├── core/                   embeddings, LLM, chunking, document loaders, corpus analysis
 ├── vectordb/               Qdrant client, ingestion, retrieval helpers
 ├── graph/                  graph algorithms (singular, connectivity, theta, exploration)
 ├── connectors/             Google Drive, SharePoint
@@ -54,7 +60,7 @@ eigenmind/                  importable package
 └── ui/                     Streamlit-only code (auth, components, styles)
 
 streamlit_app.py            entry point — `streamlit run streamlit_app.py`
-pages/                      Streamlit multipage navigation (Eigenmind Cognitive Maps, /enrich corpus/, /ask/, /explore graphs/, /manage/)
+pages/                      Streamlit multipage navigation (Eigenmind Cognitive Maps, /enrich corpus/, /analyze corpus/, /ask/, /explore graphs/, /manage/)
 scripts/ingest_recursive.py CLI ingestion (also exposed as `eigenmind-ingest`)
 tests/unit/                 pure-numpy graph-math tests
 legacy/                     pre-refactor flat scripts, kept for reference

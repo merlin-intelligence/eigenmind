@@ -9,6 +9,7 @@ import datetime
 import uuid
 from typing import Iterable
 
+import numpy as np
 from qdrant_client import QdrantClient, models
 
 from eigenmind.config import (
@@ -178,6 +179,48 @@ class QdrantStore:
             }
             for h in res.points
         ]
+
+    def all_documents(self, collection: str, scroll_limit: int = 500) -> dict[str, dict]:
+        """Reconstruct full documents from their chunks.
+
+        Returns ``{filename: {"text": str, "vector": np.ndarray | None}}`` where
+        ``text`` is the chunks concatenated in ``chunk_number`` order and ``vector``
+        is the L2-normalised mean of the chunk embeddings (``None`` if a file has
+        no usable vectors stored).
+        """
+        buckets: dict[str, list[tuple[int, str, list[float] | None]]] = {}
+        next_offset = None
+        while True:
+            points, next_offset = self._client.scroll(
+                collection_name=collection,
+                limit=scroll_limit,
+                offset=next_offset,
+                with_payload=["filename", "chunk_number", "text"],
+                with_vectors=True,
+            )
+            for p in points:
+                payload = p.payload or {}
+                fname = payload.get("filename", "unknown")
+                buckets.setdefault(fname, []).append((
+                    int(payload.get("chunk_number", 0)),
+                    payload.get("text", ""),
+                    p.vector,
+                ))
+            if not next_offset:
+                break
+
+        out: dict[str, dict] = {}
+        for fname, chunks in buckets.items():
+            chunks_sorted = sorted(chunks, key=lambda c: c[0])
+            text = "\n".join(c[1] for c in chunks_sorted)
+            raw_vecs = [c[2] for c in chunks_sorted if c[2] is not None]
+            mean_vec: np.ndarray | None = None
+            if raw_vecs:
+                arr = np.asarray(raw_vecs, dtype=np.float32).mean(axis=0)
+                norm = float(np.linalg.norm(arr))
+                mean_vec = arr / norm if norm > 0 else arr
+            out[fname] = {"text": text, "vector": mean_vec}
+        return out
 
     def documents_for_date(self, collection: str, date: datetime.date) -> dict[str, int]:
         """``{filename: chunk_count}`` for documents ingested on the given date."""

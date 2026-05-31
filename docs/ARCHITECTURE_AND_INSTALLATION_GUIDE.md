@@ -6,7 +6,7 @@
 *   **Vector Database**: Qdrant (Running locally via Docker)
 *   **Embeddings**: SentenceTransformers (`intfloat/multilingual-e5-base`, 768-dim, multilingual). E5 `query:` / `passage:` prefixes are applied automatically by the wrapper in `eigenmind/core/embeddings.py`. Runs locally on CPU/CUDA/MPS, and is cached process-wide (single instance shared across all Streamlit sessions and users).
 *   **LLM Provider**: Nebius AI (Llama, Kimi, OSS models) via REST API
-*   **Processing**: NLTK (Key Concept Extraction), Langchain (Chunking), NetworkX (Graph Mathematics)
+*   **Processing**: NLTK (Key Concept Extraction & stopwords), Langchain (Chunking), NetworkX (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
 *   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
 
 ---
@@ -142,9 +142,10 @@ Navigate between pages from the Streamlit sidebar:
 | Page | Purpose |
 |---|---|
 | `pages/1_Ingest.py`         | `/enrich corpus/` - Build / extend a corpus from local dirs, Google Drive, SharePoint |
-| `pages/2_Chat.py`           | `/ask/` - Hybrid RAG question answering against a selected collection |
-| `pages/3_Graph_Explorer.py` | `/explore graphs/` - Subgraph view (Singular / Hinge / Theta nodes) |
-| `pages/4_Manage.py`         | `/manage/` - List & delete documents per ingestion date |
+| `pages/2_Corpus_Analysis.py`| `/analyze corpus/` - Inventory, sizes, wordcloud, embedding-based topic clustering (TF-IDF labels), pairwise semantic similarity |
+| `pages/3_Chat.py`           | `/ask/` - Hybrid RAG question answering against a selected collection |
+| `pages/4_Graph_Explorer.py` | `/explore graphs/` - Subgraph view (Singular / Hinge / Theta nodes) |
+| `pages/5_Manage.py`         | `/manage/` - List & delete documents per ingestion date |
 
 ### CLI ingestion (no UI)
 

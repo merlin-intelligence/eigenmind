@@ -30,6 +30,8 @@ dependencies = [
     "chunknorris",
     "requests",
     "python-dotenv",
+    "scikit-learn",
+    "wordcloud",
 ]
 
 [project.optional-dependencies]

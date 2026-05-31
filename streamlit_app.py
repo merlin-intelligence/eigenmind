@@ -23,6 +23,7 @@ def home_page():
         Welcome. Use the sidebar to navigate:
         <ul style="margin-top:0.5rem">
           <li><strong>/enrich corpus/</strong> — build your corpus from local folders, Google Drive or SharePoint.</li>
+          <li><strong>/analyze corpus/</strong> — inventory, topics and similarities across your corpus.</li>
           <li><strong>/ask/</strong> — ask questions over your corpus with hybrid graph + similarity retrieval.</li>
           <li><strong>/explore graphs/</strong> — visualize the knowledge graph around a prompt.</li>
           <li><strong>/manage/</strong> — list and delete embedded documents by date.</li>
@@ -47,9 +48,10 @@ if not check_password():
 pg = st.navigation([
     st.Page(home_page, title="Eigenmind Cognitive Maps", icon="🧠", default=True),
     st.Page("pages/1_Ingest.py", title="/enrich corpus/", icon="📥"),
-    st.Page("pages/2_Chat.py", title="/ask/", icon="💬"),
-    st.Page("pages/3_Graph_Explorer.py", title="/explore graphs/", icon="🕸️"),
-    st.Page("pages/4_Manage.py", title="/manage/", icon="⚙️"),
+    st.Page("pages/2_Corpus_Analysis.py", title="/analyze corpus/", icon="📊"),
+    st.Page("pages/3_Chat.py", title="/ask/", icon="💬"),
+    st.Page("pages/4_Graph_Explorer.py", title="/explore graphs/", icon="🕸️"),
+    st.Page("pages/5_Manage.py", title="/manage/", icon="⚙️"),
 ])
 
 pg.run()
