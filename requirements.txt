@@ -21,3 +21,7 @@ pyvis
 spacy
 scipy
 chunknorris
+scikit-learn
+wordcloud
+python-docx
+python-pptx
