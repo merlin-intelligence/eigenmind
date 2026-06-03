@@ -158,7 +158,7 @@ source venv/bin/activate
 pip install --upgrade pip
 pip install -e .
 # Optional extras
-pip install -e ".[ocr,gdrive,sharepoint]"
+pip install -e ".[gdrive,sharepoint]"
 ```
 
 ### 3.5 Launch Qdrant (Docker)

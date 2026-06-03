@@ -1,10 +1,10 @@
-"""Ingestion pipelines: load → chunk → embed → upsert.
+"""Ingestion pipeline: load → chunk → embed → upsert.
 
 The :class:`Ingester` class holds the host/port/device/callback configuration so
-callers don't pass it to every method. Two strategies are exposed:
+callers don't pass it to every method. A single strategy is exposed:
 
-- :meth:`Ingester.run_chunknorris` — recursive PDF ingestion using ChunkNorris.
-- :meth:`Ingester.run_multi_format` — PDF/DOCX/PPTX/XLSX/TXT/MD via Langchain.
+- :meth:`Ingester.run_chunknorris` — recursive PDF/DOCX/XLSX/CSV/PPTX/TXT/MD ingestion,
+  every format parsed to markdown and chunked through ChunkNorris.
 """
 from __future__ import annotations
 
@@ -16,11 +16,11 @@ from typing import Callable
 
 from eigenmind.config import (
     BATCH_SIZE,
+    CHUNKNORRIS_EXTENSIONS,
     EMBEDDING_DIM_DEFAULT,
-    SUPPORTED_EXTENSIONS,
+    UNSUPPORTED_EXTENSIONS,
 )
-from eigenmind.core.chunking import chunknorris_pipeline, langchain_chunker
-from eigenmind.core.document_loaders import extract_text
+from eigenmind.core.chunking import chunk_with_chunknorris
 from eigenmind.core.embeddings import EmbeddingModel, detect_device
 from eigenmind.vectordb.store import QdrantStore, make_point
 
@@ -90,13 +90,17 @@ class Ingester:
         with EmbeddingModel(device=self.device) as embedder:
             yield embedder
 
-    # ─── strategy 1: ChunkNorris (PDF only) ────────────────────────
+    # ─── strategy 1: ChunkNorris (PDF/DOCX/TXT/MD) ─────────────────
 
     def run_chunknorris(self, directories_file_path: str, collection: str) -> list[str]:
-        """Recursive PDF-only ingestion using ChunkNorris. Returns log messages."""
+        """Recursive ingestion of PDF/DOCX/TXT/MD using ChunkNorris. Returns log messages.
+
+        DOCX and TXT are converted to markdown so they go through the same
+        ChunkNorris pipeline as PDF and MD. PPTX/XLSX/CSV/JSON are skipped with a
+        "not supported yet" notice.
+        """
         self.logs = []
         log = self._log
-        pipeline = chunknorris_pipeline()
 
         self.store.ensure_collection(collection, EMBEDDING_DIM_DEFAULT)
         skip = self.store.existing_filenames(collection)
@@ -109,16 +113,22 @@ class Ingester:
             return self.logs
         log(f"Found {len(directories)} directories to process.")
 
-        files = _walk_files(directories, (".pdf",), skip, log)
+        # Report recognised-but-unsupported formats so the user knows they were skipped.
+        ignored = _walk_files(directories, UNSUPPORTED_EXTENSIONS, set(), lambda _m: None)
+        for fp in ignored:
+            ext = os.path.splitext(fp)[1].lower()
+            log(f"Skipping {os.path.basename(fp)}: format '{ext}' is not supported for now.")
+
+        files = _walk_files(directories, CHUNKNORRIS_EXTENSIONS, skip, log)
         if not files:
             log("No new files to index.")
             return self.logs
-        log(f"Total new PDF files to process: {len(files)}")
+        log(f"Total new files to process: {len(files)}")
 
         with self._embedder_scope(log) as embedder:
             total = self.store.batched_upsert(
                 collection,
-                self._chunknorris_points(files, pipeline, embedder, log),
+                self._chunknorris_points(files, embedder, log),
                 BATCH_SIZE,
                 log,
             )
@@ -129,69 +139,17 @@ class Ingester:
         log(f"\nProcess complete! Added a total of {total} new points.")
         return self.logs
 
-    def _chunknorris_points(self, files: list[str], pipeline, embedder: EmbeddingModel, log):
+    def _chunknorris_points(self, files: list[str], embedder: EmbeddingModel, log):
         for processed, fp in enumerate(files, start=1):
             fname = os.path.basename(fp)
             log(f"Processing file: {fp}")
             try:
                 ingestion_date = datetime.datetime.now().isoformat()
-                for i, chunk in enumerate(pipeline.chunk_file(fp)):
+                for i, chunk in enumerate(chunk_with_chunknorris(fp)):
                     text = chunk.get_text()
                     if not text.strip():
                         continue
                     yield make_point(fname, i, text, embedder.encode_passage(text).tolist(), ingestion_date)
-            except Exception as e:  # noqa: BLE001
-                log(f"  -> Error processing {fp}: {e}")
-                log(f"  -> Traceback: {traceback.format_exc()}")
-            if self.progress_callback:
-                self.progress_callback(processed, len(files))
-
-    # ─── strategy 2: multi-format (Langchain) ──────────────────────
-
-    def run_multi_format(self, directories_file_path: str, collection: str) -> list[str]:
-        """Multi-format ingestion (PDF/DOCX/PPTX/XLSX/TXT/MD) with Langchain chunking."""
-        self.logs = []
-        log = self._log
-
-        with self._embedder_scope(log) as embedder:
-            self.store.ensure_collection(collection, embedder.dim)
-            skip = self.store.existing_filenames(collection)
-            if skip:
-                log(f"Found {len(skip)} documents already in the collection. They will be skipped.")
-
-            directories = _read_directories_file(directories_file_path, log)
-            if not directories:
-                return self.logs
-
-            files = _walk_files(directories, SUPPORTED_EXTENSIONS, skip, log)
-            if not files:
-                log("No new files to process.")
-                return self.logs
-            log(f"Found {len(files)} new files to index.")
-
-            chunker = langchain_chunker()
-            total = self.store.batched_upsert(
-                collection,
-                self._multi_format_points(files, chunker, embedder, log),
-                BATCH_SIZE,
-                log,
-            )
-
-        log(f"\nProcess complete! Added a total of {total} new points from {len(files)} files.")
-        return self.logs
-
-    def _multi_format_points(self, files: list[str], chunker, embedder: EmbeddingModel, log):
-        for processed, fp in enumerate(files, start=1):
-            fname = os.path.basename(fp)
-            log(f"Processing file: {fp}")
-            try:
-                full_text = extract_text(fp, log)
-                if not full_text.strip():
-                    log(f"  -> Warning: Extracted text is empty for {fname}. Skipping.")
-                    continue
-                ingestion_date = datetime.datetime.now().isoformat()
-                for i, chunk_text in enumerate(chunker.split_text(full_text)):
-                    yield make_point(fname, i, chunk_text, embedder.encode_passage(chunk_text).tolist(), ingestion_date)
             except Exception as e:  # noqa: BLE001
                 log(f"  -> Error processing {fp}: {e}")
                 log(f"  -> Traceback: {traceback.format_exc()}")

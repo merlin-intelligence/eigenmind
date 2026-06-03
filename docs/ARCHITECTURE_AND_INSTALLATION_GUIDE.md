@@ -6,7 +6,7 @@
 *   **Vector Database**: Qdrant (Running locally via Docker)
 *   **Embeddings**: SentenceTransformers (`intfloat/multilingual-e5-base`, 768-dim, multilingual). E5 `query:` / `passage:` prefixes are applied automatically by the wrapper in `eigenmind/core/embeddings.py`. Runs locally on CPU/CUDA/MPS, and is cached process-wide (single instance shared across all Streamlit sessions and users).
 *   **LLM Provider**: Nebius AI (Llama, Kimi, OSS models) via REST API
-*   **Processing**: NLTK (Key Concept Extraction & stopwords), Langchain (Chunking), NetworkX (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
+*   **Processing**: ChunkNorris (parses PDF/DOCX/XLSX/CSV/MD to markdown and chunks every format uniformly), MarkItDown (PowerPoint → markdown), NLTK (Key Concept Extraction & stopwords), SciPy/NumPy (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
 *   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
 
 ---
@@ -15,7 +15,7 @@
 
 1.  **Python 3.10+** installed.
 2.  **Docker** and **Docker Compose** installed (for Qdrant).
-3.  **Tesseract OCR** (Optional, but recommended for processing scanned PDFs).
+3.  **Tesseract OCR** (Optional, but recommended for processing scanned PDFs). OCR runs through ChunkNorris/PyMuPDF's integrated Tesseract — install the system Tesseract package and point `TESSDATA_PREFIX` at its `*.traineddata` files; no extra Python packages are required.
 
 ---
 
@@ -40,8 +40,8 @@ Install the project in editable mode (preferred — uses `pyproject.toml` and ex
 
 ```bash
 pip install -e .
-# Optional extras: ocr, gdrive, sharepoint, dev
-pip install -e ".[ocr,gdrive,sharepoint]"
+# Optional extras: gdrive, sharepoint, dev
+pip install -e ".[gdrive,sharepoint]"
 ```
 
 Alternatively, the legacy `requirements.txt` is still maintained:
