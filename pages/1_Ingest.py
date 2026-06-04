@@ -153,7 +153,7 @@ def _remote_download_and_ingest(downloader: Callable[[str], None]) -> None:
 if ingestion_source == "Local Directories":
     info_box(
         "Upload a <code>.txt</code> file with one directory path per line. "
-        "Supported formats: PDF, DOCX, PPTX, XLSX, TXT, MD. "
+        "Supported formats: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD (JSON is not supported yet). "
         "Duplicate files already in the collection are automatically skipped."
     )
 

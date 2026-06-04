@@ -14,13 +14,6 @@ try:
 except ImportError:
     load_dotenv = None
 
-try:
-    import pytesseract  # noqa: F401
-    from pdf2image import convert_from_path  # noqa: F401
-    _OCR_LIBS_AVAILABLE = True
-except ImportError:
-    _OCR_LIBS_AVAILABLE = False
-
 if load_dotenv is not None:
     load_dotenv(override=False)
 
@@ -30,11 +23,13 @@ EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-base"
 EMBEDDING_DIM_DEFAULT = 768
 
 # ── Chunking ──
-CHUNK_SIZE = 300
-CHUNK_OVERLAP = 30
 BATCH_SIZE = 100
-CHUNK_SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", "; ", " ", ""]
-SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx", ".txt", ".md")
+# Formats handled by the ChunkNorris pipeline: each is parsed to markdown then chunked.
+# PDF via PdfParser, DOCX via DocxParser, XLSX via ExcelParser, CSV via CSVParser,
+# PPTX via MarkItDown, TXT/MD treated as markdown.
+CHUNKNORRIS_EXTENSIONS = (".pdf", ".docx", ".xlsx", ".csv", ".pptx", ".txt", ".md")
+# Formats we recognise but do not ingest yet — reported with a "not supported" notice.
+UNSUPPORTED_EXTENSIONS = (".json",)
 
 # ── Graph exploration ──
 MAX_CHUNKS = 100
@@ -109,7 +104,9 @@ def sharepoint_credentials() -> tuple[str, str]:
 
 
 def ocr_available() -> bool:
-    """OCR is considered available if Tesseract data path is configured AND the libs import."""
-    if not os.environ.get("TESSDATA_PREFIX"):
-        return False
-    return _OCR_LIBS_AVAILABLE
+    """OCR (ChunkNorris via PyMuPDF + Tesseract) is available when TESSDATA_PREFIX is set.
+
+    PyMuPDF uses the integrated Tesseract engine and locates its ``*.traineddata`` files
+    through this env var — no extra Python OCR packages are needed.
+    """
+    return bool(os.environ.get("TESSDATA_PREFIX"))

@@ -8,7 +8,7 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 ## Core Features
 
 1. **Multi-Source Ingestion (`/add files to your corpus/`)**
-   - Local directories (PDF, Word, Excel, PowerPoint, Text) with OCR support.
+   - Local directories (PDF, Word, Excel, CSV, PowerPoint, Text, Markdown) with OCR support — each format is parsed to markdown (PDF/DOCX/XLSX/CSV via ChunkNorris, PowerPoint via MarkItDown) and chunked uniformly by ChunkNorris. JSON is not supported yet.
    - Direct synchronization with Google Drive (OAuth or Service Account).
    - Direct synchronization with Microsoft SharePoint.
    - **Smart Resume**: File-level resume feature using Qdrant filename tracking to skip already processed documents.
