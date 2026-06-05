@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import gc
+import logging
 
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 
 from eigenmind.config import EMBEDDING_MODEL_NAME
+
+logger = logging.getLogger(__name__)
 
 
 def detect_device() -> str:
@@ -32,7 +35,9 @@ class EmbeddingModel:
         self.device = device or detect_device()
         self.model_name = model_name
         gc.collect()
+        logger.info("Loading embedding model %s on %s", model_name, self.device)
         self._model = SentenceTransformer(model_name, device=self.device)
+        logger.info("Embedding model ready (dim=%d)", self._model.get_sentence_embedding_dimension())
 
     def encode(self, text: str | list[str]) -> np.ndarray:
         """Encode one or more strings to a (batch of) embedding vector(s).
@@ -71,6 +76,7 @@ class EmbeddingModel:
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        logger.info("Embedding model released")
 
     def __enter__(self) -> "EmbeddingModel":
         return self

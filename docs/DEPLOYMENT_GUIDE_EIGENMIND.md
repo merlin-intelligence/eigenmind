@@ -217,7 +217,7 @@ Verify with `free -h` — the `Swap` line should report ~3.3G available.
 To ensure the app runs automatically on boot and stays running after you disconnect:
 
 1.  **Customize the Template**:
-    Open `scripts/eigenmind.service.template` and replace each placeholder:
+    Open `eigenmind.service.template` (at the repo root) and replace each placeholder:
     - `User=...` / `Group=...` — the Linux user that owns the repo (e.g. `username`).
     - `WorkingDirectory=...` — the absolute path to the cloned repo (e.g. `/home/username/eigenmind/eigenmind`).
     - Every other `...` in the file (in `ExecStart`, `StandardOutput`, `StandardError`) refers to **the same working directory** and must be replaced with that same absolute path. For example, with `WorkingDirectory=/home/username/eigenmind/eigenmind`:
@@ -229,8 +229,8 @@ To ensure the app runs automatically on boot and stays running after you disconn
 
 2.  **Install the Service**:
     ```bash
-    # Copy template to the system directory
-    sudo cp scripts/eigenmind.service.template /etc/systemd/system/eigenmind.service
+    # Copy (and rename) the template to the system directory
+    sudo cp eigenmind.service.template /etc/systemd/system/eigenmind.service
 
     # Reload and Start
     sudo systemctl daemon-reload
@@ -240,8 +240,17 @@ To ensure the app runs automatically on boot and stays running after you disconn
 
 3.  **Management**:
     - **Check Status**: `sudo systemctl status eigenmind`
-    - **View Logs**: `journalctl -u eigenmind -f`
+    - **View application logs** (stdout + stderr from the Python process):
+      ```bash
+      tail -f /home/username/eigenmind/eigenmind/streamlit.log
+      ```
+    - **View service lifecycle events** (start / stop / crash cycles):
+      ```bash
+      journalctl -u eigenmind -f
+      ```
     - **Restart**: `sudo systemctl restart eigenmind`
+
+    > The service uses `StandardOutput=append:<file>` which writes directly to `streamlit.log` and **bypasses the systemd journal**. `journalctl` therefore only shows service lifecycle events (started, stopped, failed), not the Python application output. All structured logs emitted by the `eigenmind` package (model loading, ingestion, RAG queries, errors) appear in `streamlit.log`.
 
 ---
 
@@ -302,7 +311,9 @@ sudo systemctl restart eigenmind
 
 # Confirm it came back up
 sudo systemctl status eigenmind
-journalctl -u eigenmind -n 50 --no-pager
+
+# Tail application output (model loading, ingestion events, errors)
+tail -n 50 streamlit.log
 ```
 
 ### 7.4 Rollback procedure
