@@ -37,7 +37,7 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 
 ## Background
 
-For an illustrated overview of the Cognitive Maps approach behind Eigenmind — what they are, why they matter, and how the app turns a corpus into navigable knowledge — see [Eigenmind — Cognitive Maps (PDF)](docs/260522_Eigenmind_Cognitive%20Maps.pdf).
+For an illustrated overview of the Cognitive Maps approach behind Eigenmind — what they are, why they matter, and how the app turns a corpus into navigable knowledge — see [Eigenmind — Cognitive Maps (PDF)](docs/260522_Eigenmind_Cognitive_Maps.pdf).
 
 ## Getting Started
 
