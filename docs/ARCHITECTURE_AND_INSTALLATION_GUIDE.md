@@ -7,6 +7,7 @@
 *   **Embeddings**: SentenceTransformers (`intfloat/multilingual-e5-base`, 768-dim, multilingual). E5 `query:` / `passage:` prefixes are applied automatically by the wrapper in `eigenmind/core/embeddings.py`. Runs locally on CPU/CUDA/MPS, and is cached process-wide (single instance shared across all Streamlit sessions and users).
 *   **LLM Provider**: Nebius AI (Llama, Kimi, OSS models) via REST API
 *   **Processing**: ChunkNorris (parses PDF/DOCX/XLSX/CSV/MD to markdown and chunks every format uniformly), MarkItDown (PowerPoint → markdown), NLTK (Key Concept Extraction & stopwords), SciPy/NumPy (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
+*   **Async Ingestion**: jobs run in a daemon thread decoupled from the browser session (`eigenmind/jobs/`). State is persisted in `user_data/jobs.db` (SQLite, WAL mode) so the UI can reconnect to a running job after a tab closure or network interruption.
 *   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
 
 ---
@@ -111,8 +112,9 @@ When both sources are present, `st.secrets` takes precedence over `.env`.
 Eigenmind is optimized to run on resource-constrained environments (e.g., 4GB RAM VMs).
 
 ### 1. Memory Management
-- **Shared Model Cache**: The SentenceTransformer is loaded once on first use via `@st.cache_resource` (see `get_embedder()` in `eigenmind/ui/components.py`) and kept resident in the Streamlit server process. The same ~300 MB instance is reused across **all sessions and all users** of the service — no per-request reload, no per-user copy. The cache is released only when the process exits (e.g. `systemctl restart eigenmind`).
-- **CLI Ingestion**: When the embedder is not injected (e.g. `eigenmind-ingest` from the CLI), the ingester falls back to a scoped `with EmbeddingModel(...)` that releases the model and clears the PyTorch cache at end of run.
+- **Shared Model Cache**: The SentenceTransformer is loaded once on first use via `@st.cache_resource` (see `get_embedder()` in `eigenmind/ui/components.py`) and kept resident in the Streamlit server process. The same ~300 MB instance is reused across **all sessions and all users** for search and analysis — no per-request reload, no per-user copy. The cache is released only when the process exits (e.g. `systemctl restart eigenmind`).
+- **Ingestion Runner**: The background job runner (`eigenmind/jobs/runner.py`) manages its own scoped `EmbeddingModel` per job — loaded at job start, released (with PyTorch cache clear) at job end. This keeps the ingestion memory footprint separate from the interactive session cache.
+- **CLI Ingestion**: The `eigenmind-ingest` CLI follows the same scoped pattern: one `with EmbeddingModel(...)` per run.
 - **CPU-First**: By default, the app uses CPU-only PyTorch to ensure stability and avoid GPU-related memory overhead on low-end systems. CUDA / MPS are auto-detected when available.
 
 ### 2. Swap File Recommendation (Linux)
@@ -126,7 +128,22 @@ sudo swapon /swapfile
 # To make it permanent, add '/swapfile none swap sw 0 0' to /etc/fstab
 ```
 
-### 3. Smart Resume Feature
+### 3. Async Ingestion & Job Persistence
+
+Ingestion jobs are decoupled from the Streamlit session thread via `eigenmind/jobs/`:
+
+| Component | File | Role |
+|---|---|---|
+| `JobStore` | `eigenmind/jobs/store.py` | SQLite (WAL) — persists job status, progress, and logs |
+| `JobRunner` | `eigenmind/jobs/runner.py` | Daemon thread — processes one job at a time, survives browser disconnections |
+
+**Job lifecycle**: `pending` → `running` → `done` / `failed`. On server restart, any job left in `running` or `pending` is automatically marked `failed` so it does not hang indefinitely.
+
+**Reconnect**: if a user closes the tab mid-ingestion and returns, the page detects the running job for the selected collection and offers to reattach. The log is streamed incrementally (by SQLite `rowid`) so no lines are lost.
+
+**Job files**: each job gets a dedicated input file at `user_data/<user>/jobs/<job_id>.txt`, cleaned up by the runner after completion.
+
+### 4. Smart Resume Feature
 The ingestion pipeline tracks processed files by storing their filenames as metadata in Qdrant.
 - When re-running an ingestion on the same directory, Eigenmind will automatically skip files that have already been indexed.
 - The `downloaded_corpus/` directory acts as a local cache for cloud-synced documents (Google Drive, SharePoint).
