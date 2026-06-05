@@ -13,7 +13,7 @@ from eigenmind.ui.auth import (
     qdrant_collection_for,
 )
 from eigenmind.ui.components import (
-    NebiusClient,
+    build_llm_client,
     empty_state,
     get_embedder,
     load_nlp,
@@ -59,10 +59,10 @@ with col_q1:
     num_similar = st.slider("similarity chunks", 0, 20, 5)
     num_singular = st.slider("singular chunks", 0, 20, 5)
 
-    short_model = sb.nebius_model.split("/")[-1]
+    short_model = sb.llm_model.split("/")[-1] if sb.llm_model else "—"
     st.markdown(
         f'<p style="font-family:\'DM Mono\',monospace;font-size:0.7rem;color:#8a6a50">'
-        f'model: {short_model}</p>',
+        f'model: {short_model} · {sb.llm_provider}</p>',
         unsafe_allow_html=True,
     )
 
@@ -74,14 +74,20 @@ with col_q2:
         help="Ask anything about your corpus. The system blends semantic search with graph analysis.",
     )
 
-    if not sb.nebius_api_key:
+    not_ready_msg = (
+        "⚠ Ollama is offline or no model is selected. Start the server "
+        "(<code>ollama serve</code>) and pull a model (<code>ollama pull qwen2.5:7b</code>)."
+        if sb.llm_provider == "ollama"
+        else "⚠ AI Hub API key is not configured. Please contact your administrator."
+    )
+    if not sb.llm_ready:
         st.markdown(
-            '<div class="info-box" style="border-left-color:#a82020;background:#f5e8e8">'
-            '⚠ AI Hub API key is not configured. Please contact your administrator.</div>',
+            f'<div class="info-box" style="border-left-color:#a82020;background:#f5e8e8">'
+            f'{not_ready_msg}</div>',
             unsafe_allow_html=True,
         )
 
-    ask_btn = st.button("▶ get answer", type="primary", disabled=(not sb.nebius_api_key))
+    ask_btn = st.button("▶ get answer", type="primary", disabled=(not sb.llm_ready))
 
 
 def _run_query() -> None:
@@ -121,7 +127,7 @@ def _run_query() -> None:
             for i, c in enumerate(retrieved):
                 context += f"--- Chunk {i + 1} ({c['source_type']}) ---\n{c['text']}\n\n"
 
-            llm = NebiusClient(model=sb.nebius_model, api_key=sb.nebius_api_key)
+            llm = build_llm_client(sb)
             answer = llm.chat(
                 system_prompt=(
                     "You are a helpful assistant. Answer the question based on the provided context. "
@@ -186,9 +192,13 @@ def _run_query() -> None:
             st.exception(e)
 
 
-if ask_btn and collection_name and prompt and sb.nebius_api_key:
+if ask_btn and collection_name and prompt and sb.llm_ready:
     _run_query()
-elif ask_btn and not sb.nebius_api_key:
-    st.warning("AI Hub API key is not configured. Please contact your administrator.")
+elif ask_btn and not sb.llm_ready:
+    st.warning(
+        "Ollama is offline or no model is selected."
+        if sb.llm_provider == "ollama"
+        else "AI Hub API key is not configured. Please contact your administrator."
+    )
 elif ask_btn:
     st.warning("Provide a collection and a question.")

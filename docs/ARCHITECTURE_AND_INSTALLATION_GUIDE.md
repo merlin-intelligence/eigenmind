@@ -5,7 +5,7 @@
 *   **Frontend**: Streamlit multipage app (`streamlit_app.py` + `pages/`)
 *   **Vector Database**: Qdrant (Running locally via Docker)
 *   **Embeddings**: SentenceTransformers (`intfloat/multilingual-e5-base`, 768-dim, multilingual). E5 `query:` / `passage:` prefixes are applied automatically by the wrapper in `eigenmind/core/embeddings.py`. Runs locally on CPU/CUDA/MPS, and is cached process-wide (single instance shared across all Streamlit sessions and users).
-*   **LLM Provider**: Nebius AI (Llama, Kimi, OSS models) via REST API
+*   **LLM Provider**: pluggable — Nebius AI (Llama, Kimi, OSS models) via REST API, or a local [Ollama](https://ollama.com) server. Selected with `LLM_PROVIDER`.
 *   **Processing**: NLTK (Key Concept Extraction & stopwords), Langchain (Chunking), NetworkX (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
 *   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
 
@@ -103,6 +103,22 @@ bob   = "bob_password"
 ```
 
 When both sources are present, `st.secrets` takes precedence over `.env`.
+
+### Choosing the LLM backend for `/ask/`
+
+The Chat page can answer through either backend, picked from the **backend** toggle in the sidebar. `LLM_PROVIDER` only sets which one is selected by default on startup:
+
+- **`nebius`** (default) — cloud generation via the Nebius / AI Hub API. Requires `NEBIUS_API_KEY`.
+- **`ollama`** — fully local generation via an [Ollama](https://ollama.com) server. No API key, no data leaves the machine.
+
+```dotenv
+# .env — local generation
+LLM_PROVIDER=ollama
+OLLAMA_HOST=http://localhost:11434   # default; override if Ollama runs elsewhere
+# OLLAMA_MODELS=qwen2.5:7b           # optional fallback list if the server can't be queried
+```
+
+When **Ollama** is selected, the model dropdown is populated automatically from the models installed on the server (`ollama list`). Pull at least one first, e.g. `ollama pull qwen2.5:7b`, and make sure the server is running (`ollama serve`).
 
 *Note for Google Drive*: Upload your `client_secrets.json` or `service_account.json` directly through the app interface when prompted. The OAuth token is then cached at `user_data/<user>/gdrive_token.json`.
 

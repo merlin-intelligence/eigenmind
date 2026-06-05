@@ -11,6 +11,12 @@ import streamlit as st
 import torch
 from spacy.cli import download as spacy_download
 
+from eigenmind.config import (
+    NEBIUS_MODELS,
+    llm_provider,
+    ollama_host,
+    ollama_models,
+)
 from eigenmind.config import nebius_api_key as env_nebius_key
 from eigenmind.core.embeddings import EmbeddingModel
 from eigenmind.ui.auth import current_user, hash_password, load_user_db, save_user_db
@@ -23,8 +29,11 @@ class SidebarState:
     qdrant_port: int
     is_connected: bool
     selected_device: str
+    llm_provider: str
+    llm_model: str
     nebius_api_key: str
-    nebius_model: str
+    ollama_host: str
+    llm_ready: bool
 
 
 @st.cache_resource
@@ -59,6 +68,89 @@ def _detect_devices() -> list[str]:
     return devices
 
 
+def list_ollama_models(host: str) -> list[str]:
+    """Return the models installed on a local Ollama server.
+
+    Queries ``GET /api/tags``. Returns an empty list if the server is unreachable
+    (which the caller treats as "Ollama offline").
+    """
+    try:
+        resp = requests.get(f"{host.rstrip('/')}/api/tags", timeout=2)
+        resp.raise_for_status()
+        return sorted(m["name"] for m in resp.json().get("models", []))
+    except (requests.RequestException, ValueError, KeyError):
+        return []
+
+
+def _render_llm_settings() -> tuple[str, str, str, str, bool]:
+    """Render the 'llm settings' sidebar block for the active provider.
+
+    Returns ``(provider, model, nebius_api_key, ollama_host_url, llm_ready)``.
+    """
+    st.markdown(
+        '<p style="font-family:\'DM Mono\',monospace;font-size:0.68rem;'
+        'letter-spacing:0.15em;color:#8a6a50;text-transform:uppercase;'
+        'margin-bottom:0.8rem">🤖 llm settings</p>',
+        unsafe_allow_html=True,
+    )
+
+    providers = ["nebius", "ollama"]
+    labels = {"nebius": "Nebius (cloud)", "ollama": "Ollama (local)"}
+    default_provider = llm_provider()
+    provider = st.radio(
+        "backend",
+        providers,
+        index=providers.index(default_provider) if default_provider in providers else 0,
+        format_func=lambda p: labels[p],
+        horizontal=True,
+        help="Where /ask/ generates answers. LLM_PROVIDER sets the initial choice.",
+    )
+
+    if provider == "ollama":
+        host_url = ollama_host()
+        installed = list_ollama_models(host_url)
+        cls, txt = ("online", "ollama online") if installed else ("offline", "ollama offline")
+        st.markdown(f'<div class="status-pill {cls}">{txt}</div>', unsafe_allow_html=True)
+
+        options = installed or ollama_models()
+        if options:
+            model = st.selectbox(
+                "model", options,
+                help="Local Ollama model used in the Chat page.",
+            )
+        else:
+            model = ""
+            st.caption("No models found. Pull one first, e.g. `ollama pull qwen2.5:7b`.")
+        ready = bool(installed) and bool(model)
+        st.markdown(
+            '<p style="font-family:\'DM Mono\',monospace;font-size:0.6rem;'
+            'color:#8a6a50;text-align:center;margin-top:-0.5rem">Powered by Ollama (local)</p>',
+            unsafe_allow_html=True,
+        )
+        return provider, model, "", host_url, ready
+
+    # Default provider: Nebius / AI Hub cloud
+    api_key = env_nebius_key()
+    try:
+        if "NEBIUS_API_KEY" in st.secrets:
+            api_key = st.secrets["NEBIUS_API_KEY"]
+    except Exception:
+        pass
+
+    model = st.selectbox(
+        "model",
+        NEBIUS_MODELS,
+        format_func=lambda x: x.split("/")[-1],
+        help="Model used in the Chat page.",
+    )
+    st.markdown(
+        '<p style="font-family:\'DM Mono\',monospace;font-size:0.6rem;'
+        'color:#8a6a50;text-align:center;margin-top:-0.5rem">Powered by AI Hub</p>',
+        unsafe_allow_html=True,
+    )
+    return provider, model, api_key, ollama_host(), bool(api_key)
+
+
 def render_sidebar() -> SidebarState:
     """Render the shared sidebar (host/port, device, LLM model, profile) and return its state."""
     with st.sidebar:
@@ -89,31 +181,7 @@ def render_sidebar() -> SidebarState:
         device = st.selectbox("embedding device", _detect_devices())
 
         st.markdown("---")
-        st.markdown(
-            '<p style="font-family:\'DM Mono\',monospace;font-size:0.68rem;'
-            'letter-spacing:0.15em;color:#8a6a50;text-transform:uppercase;'
-            'margin-bottom:0.8rem">🤖 llm settings</p>',
-            unsafe_allow_html=True,
-        )
-
-        api_key = env_nebius_key()
-        try:
-            if "NEBIUS_API_KEY" in st.secrets:
-                api_key = st.secrets["NEBIUS_API_KEY"]
-        except Exception:
-            pass
-
-        model = st.selectbox(
-            "model",
-            ("meta-llama/Llama-3.3-70B-Instruct", "moonshotai/Kimi-K2.5-fast", "openai/gpt-oss-120b"),
-            format_func=lambda x: x.split("/")[-1],
-            help="Model used in the Chat page.",
-        )
-        st.markdown(
-            '<p style="font-family:\'DM Mono\',monospace;font-size:0.6rem;'
-            'color:#8a6a50;text-align:center;margin-top:-0.5rem">Powered by AI Hub</p>',
-            unsafe_allow_html=True,
-        )
+        provider, model, api_key, ollama_host_url, llm_ready = _render_llm_settings()
 
         st.markdown("---")
         user = current_user()
@@ -160,7 +228,17 @@ def render_sidebar() -> SidebarState:
             unsafe_allow_html=True,
         )
 
-    return SidebarState(host, int(port), is_connected, device, api_key, model)
+    return SidebarState(
+        qdrant_host=host,
+        qdrant_port=int(port),
+        is_connected=is_connected,
+        selected_device=device,
+        llm_provider=provider,
+        llm_model=model,
+        nebius_api_key=api_key,
+        ollama_host=ollama_host_url,
+        llm_ready=llm_ready,
+    )
 
 
 class NebiusClient:
@@ -220,6 +298,51 @@ class NebiusClient:
         if not answer.strip():
             raise RuntimeError(f"Empty content in response: {result}")
         return answer
+
+
+class OllamaClient:
+    """Client for a local Ollama server's native chat endpoint (``/api/chat``).
+
+    Exposes the same ``chat(system_prompt, user_content)`` interface as
+    :class:`NebiusClient`, so the Chat page stays provider-agnostic. No API key
+    is required — generation happens entirely on the local machine.
+    """
+
+    def __init__(self, model: str, host: str):
+        self.model = model
+        self.host = host.rstrip("/")
+        self.api_url = f"{self.host}/api/chat"
+        self.vendor = "Ollama"
+
+    def chat(self, system_prompt: str, user_content: str) -> str:
+        """Single-turn chat completion. Raises on transport/HTTP errors or empty content."""
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            "stream": False,
+        }
+        try:
+            response = requests.post(self.api_url, json=payload, timeout=600)
+        except requests.RequestException as e:
+            raise RuntimeError(f"Cannot reach Ollama at {self.host}: {e}") from e
+        if response.status_code != 200:
+            raise RuntimeError(f"{self.vendor} API {response.status_code}: {response.text}")
+
+        result = response.json()
+        content = (result.get("message") or {}).get("content", "") or ""
+        if not content.strip():
+            raise RuntimeError(f"Empty content in response: {result}")
+        return content
+
+
+def build_llm_client(state: SidebarState):
+    """Construct the chat client for the provider selected in the sidebar."""
+    if state.llm_provider == "ollama":
+        return OllamaClient(model=state.llm_model, host=state.ollama_host)
+    return NebiusClient(model=state.llm_model, api_key=state.nebius_api_key)
 
 
 def empty_state(icon: str, message: str) -> None:

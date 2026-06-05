@@ -53,6 +53,17 @@ THETA_DIAG_SHIFT = 1e-2
 LLM_MODEL_NAME = "Qwen/Qwen2-0.5B-Instruct"
 MAX_CONTEXT_LENGTH = 4096
 
+# ── Chat-page LLM backend ──
+# The /ask/ page can answer either through the Nebius / AI Hub cloud API or a
+# local Ollama server. The provider is selected with the LLM_PROVIDER env var.
+DEFAULT_LLM_PROVIDER = "nebius"
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+NEBIUS_MODELS = (
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "moonshotai/Kimi-K2.5-fast",
+    "openai/gpt-oss-120b",
+)
+
 # ── Visualization ──
 PROMPT_NODE_COLOR = "#FF0000"
 NODE_BASE_SIZE = 10
@@ -91,6 +102,28 @@ def hf_token() -> str | None:
 def nebius_api_key() -> str:
     """Nebius / AI Hub API key from env (or empty string if not set)."""
     return os.getenv("NEBIUS_API_KEY", "").strip()
+
+
+def llm_provider() -> str:
+    """Active LLM backend for the Chat page: 'ollama' (local) or 'nebius' (cloud).
+
+    Defaults to 'nebius' so the original cloud behaviour is preserved when unset.
+    """
+    return os.getenv("LLM_PROVIDER", DEFAULT_LLM_PROVIDER).strip().lower() or DEFAULT_LLM_PROVIDER
+
+
+def ollama_host() -> str:
+    """Base URL of the local Ollama server (e.g. http://localhost:11434)."""
+    return os.getenv("OLLAMA_HOST", DEFAULT_OLLAMA_HOST).strip() or DEFAULT_OLLAMA_HOST
+
+
+def ollama_models() -> list[str]:
+    """Optional comma-separated fallback model list (e.g. 'qwen2.5:7b,llama3.1').
+
+    Used only when the Ollama server cannot be queried for its installed models.
+    """
+    raw = os.getenv("OLLAMA_MODELS", "").strip()
+    return [m.strip() for m in raw.split(",") if m.strip()]
 
 
 def sharepoint_credentials() -> tuple[str, str]:
