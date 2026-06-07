@@ -4,14 +4,15 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import tempfile
+import uuid
 from typing import Callable
 
 import streamlit as st
 
 from eigenmind.config import ocr_available, sharepoint_credentials
-from eigenmind.pipelines.ingest import Ingester
+from eigenmind.jobs.runner import JobRunner
+from eigenmind.jobs.store import JobStore
 from eigenmind.ui.auth import (
     check_password,
     current_user,
@@ -21,7 +22,6 @@ from eigenmind.ui.auth import (
 )
 from eigenmind.ui.components import (
     empty_state,
-    get_embedder,
     info_box,
     metric_card,
     render_sidebar,
@@ -47,6 +47,21 @@ except ImportError:
     SHAREPOINT_AVAILABLE = False
 
 
+# ── Module-level singletons (one per server process, shared across sessions) ──
+
+@st.cache_resource
+def _job_store() -> JobStore:
+    os.makedirs("user_data", exist_ok=True)
+    return JobStore(os.path.join("user_data", "jobs.db"))
+
+
+@st.cache_resource
+def _job_runner(qdrant_host: str, qdrant_port: int) -> JobRunner:
+    return JobRunner(_job_store(), qdrant_host, qdrant_port)
+
+
+# ── Page setup ────────────────────────────────────────────────────────
+
 apply_global_styles()
 if not check_password():
     st.stop()
@@ -61,12 +76,14 @@ if not sb.is_connected:
 store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
 existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
 
-# ── Source & collection selection ──
+# ── Source & collection selection ─────────────────────────────────────
 col_src, col_mode = st.columns(2)
 with col_src:
     sources = ["Local Directories"]
-    if GDRIVE_AVAILABLE: sources.append("Google Drive")
-    if SHAREPOINT_AVAILABLE: sources.append("SharePoint")
+    if GDRIVE_AVAILABLE:
+        sources.append("Google Drive")
+    if SHAREPOINT_AVAILABLE:
+        sources.append("SharePoint")
     ingestion_source = st.radio("source", sources, horizontal=True)
 with col_mode:
     mode_options = ["Create New", "Select Existing"]
@@ -102,55 +119,111 @@ os.makedirs(user_dir, exist_ok=True)
 history_file = os.path.join(user_dir, f"history_{collection_name}.txt")
 
 
-def _run_ingest(directories_path: str, *, label: str = "embedding") -> None:
-    if not QdrantStore.is_reachable(sb.qdrant_host, sb.qdrant_port):
-        st.error("Qdrant is no longer reachable. Check the service and retry.")
+# ── Job helpers ───────────────────────────────────────────────────────
+
+def _submit_job(dirs_content: bytes) -> str:
+    """Persist the dirs file, create a DB record, enqueue it, return job_id."""
+    job_id = str(uuid.uuid4())
+    job_dir = os.path.join("user_data", current_user(), "jobs")
+    os.makedirs(job_dir, exist_ok=True)
+    dirs_path = os.path.join(job_dir, f"{job_id}.txt")
+    with open(dirs_path, "wb") as f:
+        f.write(dirs_content)
+    _job_store().create_job(
+        job_id=job_id,
+        collection=qdrant_collection_for(collection_name),
+        directories_file=dirs_path,
+        device=sb.selected_device,
+        history_file=history_file,
+    )
+    _job_runner(sb.qdrant_host, sb.qdrant_port).submit(job_id)
+    return job_id
+
+
+def _activate_job(job_id: str) -> None:
+    st.session_state["active_job_id"] = job_id
+    st.session_state.pop("log_cursor", None)
+    st.session_state.pop("log_buffer", None)
+
+
+# ── Job status fragment (auto-refreshes every 2 s while a job is active) ──
+
+@st.fragment(run_every=2.0)
+def _render_job_status() -> None:
+    job_id = st.session_state.get("active_job_id")
+    if not job_id:
         return
-    st.info(f"{label.capitalize()} into **{collection_name}**…")
-    progress = st.progress(0)
-    progress_text = st.empty()
+    job = _job_store().get_job(job_id)
+    if not job:
+        return
 
-    def cb(cur: int, tot: int) -> None:
-        if tot > 0:
-            progress.progress(min(cur / tot, 1.0))
-            progress_text.markdown(
-                f'<p style="font-family:\'DM Mono\',monospace;font-size:0.75rem;color:#8a6a50">'
-                f'file {cur} / {tot}</p>',
-                unsafe_allow_html=True,
-            )
+    status = job["status"]
+    icons = {"pending": "⏳", "running": "⚙️", "done": "✅", "failed": "❌"}
+    st.markdown(f"**{icons.get(status, '·')} ingestion job** — `{status}`")
 
-    ingester = Ingester(store=store, device=sb.selected_device,
-                        progress_callback=cb, history_file=history_file,
-                        embedder=get_embedder(sb.selected_device))
-    with st.spinner("vectorising your documents…"):
-        logs = ingester.run_chunknorris(directories_path, qdrant_collection_for(collection_name))
-    st.success(f"✓ {label.capitalize()} complete!")
-    with st.expander("processing log", expanded=False):
-        for line in logs:
-            st.text(line)
+    cur, tot = job["progress_current"], job["progress_total"]
+    if tot > 0:
+        st.progress(min(cur / tot, 1.0))
+        st.caption(f"file {cur} / {tot}")
+    elif status == "running":
+        st.progress(0)
 
+    # Stream new log lines incrementally
+    last_rowid = st.session_state.get("log_cursor", 0)
+    new_entries = _job_store().get_logs(job_id, after_rowid=last_rowid)
+    if new_entries:
+        rowids, messages = zip(*new_entries)
+        st.session_state["log_cursor"] = rowids[-1]
+        buf = st.session_state.get("log_buffer", "")
+        st.session_state["log_buffer"] = buf + "\n".join(messages) + "\n"
+
+    buf = st.session_state.get("log_buffer", "")
+    if buf:
+        with st.expander("processing log", expanded=(status == "running")):
+            st.code(buf.strip(), language=None)
+
+    if status == "done":
+        st.success("Ingestion complete!")
+    elif status == "failed":
+        st.error("Ingestion failed — see log above.")
+
+
+# Reconnect banner: if a job is already running for this collection but this
+# session has no active_job_id (e.g. user reconnected after a tab closure),
+# offer to reattach to the running job.
+if "active_job_id" not in st.session_state:
+    latest = _job_store().latest_job_for(qdrant_collection_for(collection_name))
+    if latest and latest["status"] in ("running", "pending"):
+        st.info(
+            f"An ingestion is already running for **{collection_name}** "
+            f"(started {latest['created_at'][:16]})."
+        )
+        if st.button("monitor this job"):
+            _activate_job(latest["id"])
+            st.rerun()
+
+_render_job_status()
+
+st.markdown("---")
+
+
+# ── Remote download helper ────────────────────────────────────────────
 
 def _remote_download_and_ingest(downloader: Callable[[str], None]) -> None:
-    """Run a remote-source download into the user corpus, then ingest the resulting directory.
-
-    ``downloader`` is called with the absolute path to the destination directory.
-    """
+    """Download from a remote source (sync, with live feedback), then submit ingestion as a background job."""
     user_corpus = os.path.join("downloaded_corpus", current_user())
     os.makedirs(user_corpus, exist_ok=True)
     download_dir = os.path.join(user_corpus, collection_name)
 
     downloader(download_dir)
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", encoding="utf-8", delete=False) as f:
-        f.write(download_dir)
-        dirs_txt = f.name
-    try:
-        _run_ingest(dirs_txt)
-    finally:
-        os.remove(dirs_txt)
+    job_id = _submit_job(download_dir.encode("utf-8"))
+    _activate_job(job_id)
+    st.info("Download complete — ingestion is running in the background.")
+    st.rerun()
 
 
-# ══ LOCAL DIRECTORIES ══
+# ══ LOCAL DIRECTORIES ══════════════════════════════════════════════════
 if ingestion_source == "Local Directories":
     _SUPPORTED_EXTS = ["pdf", "docx", "xlsx", "csv", "pptx", "txt", "md"]
     _FORMATS_NOTE = "Supported formats: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD."
@@ -171,16 +244,12 @@ if ingestion_source == "Local Directories":
         uploaded = st.file_uploader("directories.txt", type=["txt"])
         if st.button("▶ start embedding", type="primary"):
             if uploaded is not None and collection_name:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".txt", mode="wb") as tmp:
-                    tmp.write(uploaded.getvalue())
-                    tmp_path = tmp.name
                 try:
-                    _run_ingest(tmp_path)
+                    job_id = _submit_job(uploaded.getvalue())
+                    _activate_job(job_id)
+                    st.rerun()
                 except Exception as e:  # noqa: BLE001
-                    st.error(f"Error during indexing: {e}")
-                    st.exception(e)
-                finally:
-                    os.remove(tmp_path)
+                    st.error(f"Failed to submit job: {e}")
             else:
                 st.warning("Provide both a directories.txt file and a collection name.")
 
@@ -196,25 +265,17 @@ if ingestion_source == "Local Directories":
         )
         if st.button("▶ start embedding", type="primary"):
             if uploaded_files and collection_name:
-                tmp_dir = tempfile.mkdtemp()
+                upload_dir = os.path.join("user_data", current_user(), "uploads", collection_name)
+                os.makedirs(upload_dir, exist_ok=True)
                 try:
                     for uf in uploaded_files:
-                        with open(os.path.join(tmp_dir, uf.name), "wb") as fh:
+                        with open(os.path.join(upload_dir, uf.name), "wb") as fh:
                             fh.write(uf.getvalue())
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-                    ) as tf:
-                        tf.write(tmp_dir)
-                        dirs_txt = tf.name
-                    try:
-                        _run_ingest(dirs_txt)
-                    except Exception as e:  # noqa: BLE001
-                        st.error(f"Error during indexing: {e}")
-                        st.exception(e)
-                    finally:
-                        os.remove(dirs_txt)
-                finally:
-                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                    job_id = _submit_job(upload_dir.encode("utf-8"))
+                    _activate_job(job_id)
+                    st.rerun()
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"Failed to submit job: {e}")
             else:
                 st.warning("Drop at least one file and provide a collection name.")
 
@@ -229,18 +290,12 @@ if ingestion_source == "Local Directories":
                 if not os.path.isdir(folder_path):
                     st.error(f"'{folder_path}' is not a valid directory.")
                 else:
-                    with tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".txt", delete=False, encoding="utf-8"
-                    ) as tf:
-                        tf.write(folder_path)
-                        dirs_txt = tf.name
                     try:
-                        _run_ingest(dirs_txt)
+                        job_id = _submit_job(folder_path.encode("utf-8"))
+                        _activate_job(job_id)
+                        st.rerun()
                     except Exception as e:  # noqa: BLE001
-                        st.error(f"Error during indexing: {e}")
-                        st.exception(e)
-                    finally:
-                        os.remove(dirs_txt)
+                        st.error(f"Failed to submit job: {e}")
             else:
                 st.warning("Provide a folder path and a collection name.")
 
@@ -249,12 +304,14 @@ if ingestion_source == "Local Directories":
         st.markdown(f"**Found progress history for '{collection_name}'**")
         if st.button("↺ resume embedding from history", type="secondary"):
             try:
-                _run_ingest(history_file, label="resume")
+                with open(history_file, "rb") as f:
+                    job_id = _submit_job(f.read())
+                _activate_job(job_id)
+                st.rerun()
             except Exception as e:  # noqa: BLE001
-                st.error(f"Error during resume: {e}")
-                st.exception(e)
+                st.error(f"Failed to submit resume job: {e}")
 
-# ══ GOOGLE DRIVE ══
+# ══ GOOGLE DRIVE ═══════════════════════════════════════════════════════
 elif ingestion_source == "Google Drive":
     if not GDRIVE_AVAILABLE:
         st.error("Missing Google Drive libraries.")
@@ -280,9 +337,7 @@ elif ingestion_source == "Google Drive":
                 st.rerun()
         else:
             secrets_file = st.file_uploader("service_account.json", type=["json"])
-            info_box(
-                "Share the Drive folder with your service account email (Viewer)."
-            )
+            info_box("Share the Drive folder with your service account email (Viewer).")
 
         if st.button("▶ download & embed", type="primary"):
             m = re.search(r"folders/([a-zA-Z0-9_-]+)", gdrive_folder_id or "")
@@ -331,7 +386,7 @@ elif ingestion_source == "Google Drive":
             else:
                 st.warning("Provide folder ID, secrets file, and collection name.")
 
-# ══ SHAREPOINT ══
+# ══ SHAREPOINT ═════════════════════════════════════════════════════════
 elif ingestion_source == "SharePoint":
     if not SHAREPOINT_AVAILABLE:
         st.error("Missing SharePoint library.")
