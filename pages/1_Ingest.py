@@ -225,24 +225,79 @@ def _remote_download_and_ingest(downloader: Callable[[str], None]) -> None:
 
 # ══ LOCAL DIRECTORIES ══════════════════════════════════════════════════
 if ingestion_source == "Local Directories":
-    info_box(
-        "Upload a <code>.txt</code> file with one directory path per line. "
-        "Supported formats: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD (JSON is not supported yet). "
-        "Duplicate files already in the collection are automatically skipped."
+    _SUPPORTED_EXTS = ["pdf", "docx", "xlsx", "csv", "pptx", "txt", "md"]
+    _FORMATS_NOTE = "Supported formats: PDF, DOCX, XLSX, CSV, PPTX, TXT, MD."
+
+    local_mode = st.radio(
+        "input mode",
+        ["Paths file (.txt)", "Upload files", "Folder path"],
+        horizontal=True,
+        key="local_mode",
     )
 
-    uploaded = st.file_uploader("directories.txt", type=["txt"])
+    if local_mode == "Paths file (.txt)":
+        info_box(
+            "Upload a <code>.txt</code> file with one directory path per line. "
+            f"{_FORMATS_NOTE} "
+            "Duplicate files already in the collection are automatically skipped."
+        )
+        uploaded = st.file_uploader("directories.txt", type=["txt"])
+        if st.button("▶ start embedding", type="primary"):
+            if uploaded is not None and collection_name:
+                try:
+                    job_id = _submit_job(uploaded.getvalue())
+                    _activate_job(job_id)
+                    st.rerun()
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"Failed to submit job: {e}")
+            else:
+                st.warning("Provide both a directories.txt file and a collection name.")
 
-    if st.button("▶ start embedding", type="primary"):
-        if uploaded is not None and collection_name:
-            try:
-                job_id = _submit_job(uploaded.getvalue())
-                _activate_job(job_id)
-                st.rerun()
-            except Exception as e:  # noqa: BLE001
-                st.error(f"Failed to submit job: {e}")
-        else:
-            st.warning("Provide both a directories.txt file and a collection name.")
+    elif local_mode == "Upload files":
+        info_box(
+            f"Drop one or more files to index directly. {_FORMATS_NOTE} "
+            "Duplicate files already in the collection are automatically skipped."
+        )
+        uploaded_files = st.file_uploader(
+            "files",
+            type=_SUPPORTED_EXTS,
+            accept_multiple_files=True,
+        )
+        if st.button("▶ start embedding", type="primary"):
+            if uploaded_files and collection_name:
+                upload_dir = os.path.join("user_data", current_user(), "uploads", collection_name)
+                os.makedirs(upload_dir, exist_ok=True)
+                try:
+                    for uf in uploaded_files:
+                        with open(os.path.join(upload_dir, uf.name), "wb") as fh:
+                            fh.write(uf.getvalue())
+                    job_id = _submit_job(upload_dir.encode("utf-8"))
+                    _activate_job(job_id)
+                    st.rerun()
+                except Exception as e:  # noqa: BLE001
+                    st.error(f"Failed to submit job: {e}")
+            else:
+                st.warning("Drop at least one file and provide a collection name.")
+
+    elif local_mode == "Folder path":
+        info_box(
+            f"Enter the path to a local folder. All supported files inside will be indexed recursively. {_FORMATS_NOTE} "
+            "Duplicate files already in the collection are automatically skipped."
+        )
+        folder_path = st.text_input("folder path", placeholder="/path/to/your/documents")
+        if st.button("▶ start embedding", type="primary"):
+            if folder_path and collection_name:
+                if not os.path.isdir(folder_path):
+                    st.error(f"'{folder_path}' is not a valid directory.")
+                else:
+                    try:
+                        job_id = _submit_job(folder_path.encode("utf-8"))
+                        _activate_job(job_id)
+                        st.rerun()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(f"Failed to submit job: {e}")
+            else:
+                st.warning("Provide a folder path and a collection name.")
 
     if os.path.exists(history_file):
         st.markdown("---")

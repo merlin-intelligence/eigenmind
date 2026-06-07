@@ -7,7 +7,9 @@ import platform
 from office365.runtime.auth.client_credential import ClientCredential
 from office365.sharepoint.client_context import ClientContext
 
-SUPPORTED_EXTENSIONS = (".pdf", ".docx", ".pptx", ".xlsx", ".txt")
+from eigenmind.config import CHUNKNORRIS_EXTENSIONS
+
+SUPPORTED_EXTENSIONS = CHUNKNORRIS_EXTENSIONS
 SKIP_FOLDERS = {"Forms", "Attachments"}
 
 
