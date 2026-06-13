@@ -105,6 +105,22 @@ bob   = "bob_password"
 
 When both sources are present, `st.secrets` takes precedence over `.env`.
 
+### Choosing the LLM backend for `/ask/`
+
+The Chat page can answer through either backend, picked from the **backend** toggle in the sidebar. `LLM_PROVIDER` only sets which one is selected by default on startup:
+
+- **`nebius`** (default) — cloud generation via the Nebius / AI Hub API. Requires `NEBIUS_API_KEY`.
+- **`ollama`** — fully local generation via an [Ollama](https://ollama.com) server. No API key, no data leaves the machine.
+
+```dotenv
+# .env — local generation
+LLM_PROVIDER=ollama
+OLLAMA_HOST=http://localhost:11434   # default; override if Ollama runs elsewhere
+# OLLAMA_MODELS=qwen2.5:7b           # optional fallback list if the server can't be queried
+```
+
+When **Ollama** is selected, the model dropdown is populated automatically from the models installed on the server (`ollama list`). Pull at least one first, e.g. `ollama pull qwen2.5:7b`, and make sure the server is running (`ollama serve`).
+
 *Note for Google Drive*: Upload your `client_secrets.json` or `service_account.json` directly through the app interface when prompted. The OAuth token is then cached at `user_data/<user>/gdrive_token.json`.
 
 ## Performance & Stability Optimizations
