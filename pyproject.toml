@@ -22,12 +22,9 @@ dependencies = [
     "pyvis",
     "spacy",
     "nltk",
-    "langchain-text-splitters",
-    "pypdf",
-    "python-docx",
-    "python-pptx",
     "openpyxl",
     "chunknorris",
+    "markitdown[pptx]",
     "requests",
     "python-dotenv",
     "scikit-learn",
@@ -35,7 +32,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ocr = ["pytesseract", "pdf2image"]
 gdrive = ["google-api-python-client", "google-auth-httplib2", "google-auth-oauthlib"]
 sharepoint = ["Office365-REST-Python-Client"]
 dev = ["pytest", "ruff"]

@@ -1,34 +1,65 @@
-"""Chunking strategies — Langchain-based and ChunkNorris-based."""
+"""Chunking — ChunkNorris based: parse every supported format to markdown, then chunk.
+
+Each format becomes a markdown document and is split by the :class:`MarkdownChunker`,
+so chunk granularity stays homogeneous across the corpus regardless of source format.
+"""
 from __future__ import annotations
 
+import os
+
 from chunknorris.chunkers import MarkdownChunker
-from chunknorris.parsers import PdfParser
-from chunknorris.pipelines import BasePipeline
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from chunknorris.parsers import CSVParser, DocxParser, ExcelParser, MarkdownParser, PdfParser
 
-from eigenmind.config import (
-    CHUNK_OVERLAP,
-    CHUNK_SEPARATORS,
-    CHUNK_SIZE,
-    ocr_available,
-)
+from eigenmind.config import ocr_available
 
 
-def langchain_chunker(
-    chunk_size: int = CHUNK_SIZE,
-    chunk_overlap: int = CHUNK_OVERLAP,
-):
-    """Recursive char-level splitter from langchain. Cheap and language-agnostic."""
-    return RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        separators=CHUNK_SEPARATORS,
-    )
+def _file_parser_for(ext: str):
+    """Return a ChunkNorris parser that reads ``ext`` files directly, or None.
+
+    PPTX and TXT are excluded here — they are turned into markdown strings first and
+    parsed via :meth:`MarkdownParser.parse_string` in :func:`chunk_with_chunknorris`.
+    """
+    if ext == ".pdf":
+        return PdfParser(use_ocr="auto" if ocr_available() else "never")
+    if ext == ".docx":
+        return DocxParser()
+    if ext == ".xlsx":
+        return ExcelParser()
+    if ext == ".csv":
+        # Delimiter is auto-detected; rows are emitted as JSON lines.
+        return CSVParser()
+    if ext == ".md":
+        return MarkdownParser()
+    return None
 
 
-def chunknorris_pipeline():
-    """High-quality PDF → markdown → chunks pipeline. Heavier but better structure."""
-    return BasePipeline(
-        parser=PdfParser(use_ocr="auto" if ocr_available() else "never"),
-        chunker=MarkdownChunker(),
-    )
+def _pptx_to_markdown(filepath: str) -> str:
+    """Convert a .pptx deck to markdown via MarkItDown (no LLM image captioning)."""
+    from markitdown import MarkItDown
+
+    return MarkItDown().convert(filepath).text_content
+
+
+def chunk_with_chunknorris(filepath: str):
+    """Parse a supported file to markdown via ChunkNorris and return its chunks.
+
+    PDF, DOCX, XLSX, CSV and MD are parsed natively by ChunkNorris. TXT is read as raw
+    markdown text, and PPTX is first converted to markdown with MarkItDown. Every path
+    ends in :class:`MarkdownParser` + :class:`MarkdownChunker`. Raises :class:`ValueError`
+    for any other extension.
+    """
+    ext = os.path.splitext(filepath)[1].lower()
+
+    if ext == ".pptx":
+        doc = MarkdownParser().parse_string(_pptx_to_markdown(filepath))
+    elif ext == ".txt":
+        # MarkdownParser.parse_file only accepts ".md"; feed the raw text as a string.
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            doc = MarkdownParser().parse_string(f.read())
+    else:
+        parser = _file_parser_for(ext)
+        if parser is None:
+            raise ValueError(f"format '{ext}' is not supported by ChunkNorris")
+        doc = parser.parse_file(filepath)
+
+    return MarkdownChunker().chunk(doc)

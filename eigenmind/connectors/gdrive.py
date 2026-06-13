@@ -12,6 +12,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 
+from eigenmind.config import CHUNKNORRIS_EXTENSIONS
+
 SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
 SUPPORTED_MIMETYPES = (
     "application/pdf",
@@ -19,6 +21,9 @@ SUPPORTED_MIMETYPES = (
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # .pptx
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",          # .xlsx
     "text/plain",
+    "text/markdown",
+    "text/x-markdown",
+    "text/csv",
 )
 
 
@@ -93,7 +98,7 @@ class GDriveClient:
             name = _sanitize_filename(item["name"])
             if item["mimeType"] == "application/vnd.google-apps.folder":
                 self.download_folder(item["id"], os.path.join(destination, name), log_callback)
-            elif item["mimeType"] in SUPPORTED_MIMETYPES:
+            elif item["mimeType"] in SUPPORTED_MIMETYPES or item["name"].lower().endswith(CHUNKNORRIS_EXTENSIONS):
                 file_path = os.path.join(destination, name)
                 if log_callback:
                     log_callback(f"Downloading GDrive file: {name}")

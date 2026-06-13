@@ -8,9 +8,10 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 ## Core Features
 
 1. **Multi-Source Ingestion (`/add files to your corpus/`)**
-   - Local directories (PDF, Word, Excel, PowerPoint, Text) with OCR support.
+   - Local directories (PDF, Word, Excel, CSV, PowerPoint, Text, Markdown) with OCR support — each format is parsed to markdown (PDF/DOCX/XLSX/CSV via ChunkNorris, PowerPoint via MarkItDown) and chunked uniformly by ChunkNorris. JSON is not supported yet.
    - Direct synchronization with Google Drive (OAuth or Service Account).
    - Direct synchronization with Microsoft SharePoint.
+   - **Browser-resilient async ingestion**: jobs run in a background daemon thread decoupled from the browser session. Tab closure, network interruption, or browser timeout no longer kills the process. Job state (status, progress, logs) is persisted to SQLite (`user_data/jobs.db`) and the UI reconnects automatically to a running job on page reload.
    - **Smart Resume**: File-level resume feature using Qdrant filename tracking to skip already processed documents.
    - Local multilingual embedding (`intfloat/multilingual-e5-base`, 768-dim) via `sentence-transformers`, with the E5 `query:` / `passage:` prefixes applied automatically.
 
@@ -30,14 +31,14 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 
 ## Stability & Performance
 
-- **Shared Model Cache**: The embedding model is loaded once on first use and kept resident in the Streamlit process via `@st.cache_resource` — a single ~300 MB copy is reused across all sessions and users of the same service.
+- **Shared Model Cache**: The embedding model is loaded once on first use for search and analysis pages, kept resident via `@st.cache_resource` — a single ~300 MB copy is reused across all sessions. The background ingestion runner manages its own scoped model per job (loaded at job start, released at job end).
 - **CPU-First**: CPU-only PyTorch by default for broad compatibility and predictable memory usage; CUDA / MPS auto-detected when available.
 - **Cold-Start Buffer**: On 4 GB-RAM VMs a 3.3 GB swap file is recommended to absorb the first-load spike (model download + load). See the [Deployment Guide](docs/DEPLOYMENT_GUIDE_EIGENMIND.md).
-- **Persistent Storage**: All ingested data and vector embeddings are stored persistently in the `qdrant_storage/` directory.
+- **Persistent Storage**: All ingested data and vector embeddings are stored persistently in the `qdrant_storage/` directory. Job state and logs are persisted in `user_data/jobs.db`.
 
 ## Background
 
-For an illustrated overview of the Cognitive Maps approach behind Eigenmind — what they are, why they matter, and how the app turns a corpus into navigable knowledge — see [Eigenmind — Cognitive Maps (PDF)](docs/260522_Eigenmind_Cognitive%20Maps.pdf).
+For an illustrated overview of the Cognitive Maps approach behind Eigenmind — what they are, why they matter, and how the app turns a corpus into navigable knowledge — see [Eigenmind — Cognitive Maps (PDF)](docs/260522_Eigenmind_Cognitive_Maps.pdf).
 
 ## Getting Started
 
@@ -57,6 +58,7 @@ eigenmind/                  importable package
 ├── graph/                  graph algorithms (singular, connectivity, theta, exploration)
 ├── connectors/             Google Drive, SharePoint
 ├── pipelines/              orchestration: ingest, rag
+├── jobs/                   async ingestion job system (SQLite store + daemon runner)
 └── ui/                     Streamlit-only code (auth, components, styles)
 
 streamlit_app.py            entry point — `streamlit run streamlit_app.py`
