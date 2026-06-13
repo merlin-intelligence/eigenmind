@@ -3,7 +3,7 @@ The software is licensed under MIT.
 The Eigenmind and Merlin Intelligence names, logos and branding are not covered by the MIT license and may not be used without permission.
 # Eigenmind - /accelerate clarity/
 
-Eigenmind is a sophisticated knowledge management and exploration application built with Streamlit. It leverages a local Vector Database (Qdrant via Docker) and advanced AI models (via Nebius AI) to ingest, map, and query your proprietary document corpus.
+Eigenmind is a sophisticated knowledge management and exploration application built with Streamlit. It leverages a local Vector Database (Qdrant via Docker) and advanced AI models to ingest, map, and query your proprietary document corpus. LLM generation supports two interchangeable backends: **Nebius AI** (cloud, Llama / Kimi / OSS models) and **Ollama** (fully local, no data leaves the machine).
 
 ## Core Features
 
@@ -21,7 +21,8 @@ Eigenmind is a sophisticated knowledge management and exploration application bu
 
 3. **Advanced Question Answering (`/ask/`)**
    - Hybrid Retrieval-Augmented Generation (RAG) using both standard semantic similarity and singular chunk analysis.
-   - Interacts with remote LLMs (Llama 3.3, Kimi 2.5, OpenAI OSS 120B) hosted on Nebius AI endpoints.
+   - **Nebius AI** backend: Llama 3.3, Kimi 2.5, OpenAI OSS 120B via cloud API (requires `NEBIUS_API_KEY`).
+   - **Ollama** backend: any locally installed model (e.g. `qwen2.5:7b`), fully on-premise. Switch between backends from the sidebar toggle.
 
 4. **Corpus Analysis (`/analyze corpus/`)**
    - Document inventory by type, character-length distribution, and a TF-IDF-stopworded wordcloud.

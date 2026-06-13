@@ -59,11 +59,11 @@ class LocalLLM:
         context: str,
         source_details: list[dict] | None = None,
     ) -> tuple[str, list[str]]:
-        logger.info("LLM answer: prompt=%r sources=%d", prompt[:80], len(source_details or []))
         """Generate an answer grounded in ``context`` and quote the sources used.
 
         Returns ``(assistant_response, formatted_references)``.
         """
+        logger.info("LLM answer: prompt=%r sources=%d", prompt[:80], len(source_details or []))
         if not context.strip():
             return "Context is empty. Cannot generate an answer.", []
 
