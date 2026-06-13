@@ -161,8 +161,7 @@ def _run_query() -> None:
                 src = c["source_type"]
                 is_graph = any(k in src for k in ("Graph", "Singular", "Hinge", "Theta"))
                 badge_html = badge("graph" if is_graph else "sim")
-                score_str = f" · score {c['score']}" if c.get("score") else ""
-                with st.expander(f"[{i + 1}] {c['filename']} · chunk {c['chunk_number']}{score_str}"):
+                with st.expander(f"[{i + 1}] {c['filename']} · chunk {c['chunk_number']}"):
                     st.markdown(
                         f'<p style="margin-bottom:0.5rem">{badge_html} '
                         f'<span style="font-family:\'DM Mono\',monospace;font-size:0.7rem;'
