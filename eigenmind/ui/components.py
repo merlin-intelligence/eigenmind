@@ -1,8 +1,11 @@
 """Reusable Streamlit components: sidebar, NLP loader, Nebius/AI Hub adapter."""
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 import nltk
 import requests
@@ -77,8 +80,11 @@ def list_ollama_models(host: str) -> list[str]:
     try:
         resp = requests.get(f"{host.rstrip('/')}/api/tags", timeout=2)
         resp.raise_for_status()
-        return sorted(m["name"] for m in resp.json().get("models", []))
-    except (requests.RequestException, ValueError, KeyError):
+        models = sorted(m["name"] for m in resp.json().get("models", []))
+        logger.debug("Ollama models at %s: %s", host, models)
+        return models
+    except (requests.RequestException, ValueError, KeyError) as e:
+        logger.warning("Ollama unreachable at %s: %s", host, e)
         return []
 
 
@@ -259,9 +265,11 @@ class NebiusClient:
             self.api_url = "https://api.studio.nebius.ai/v1/chat/completions"
             self.vendor = "AI Hub Studio"
             self._user_content_is_blocks = False
+        logger.debug("NebiusClient: vendor=%s model=%s", self.vendor, self.model)
 
     def chat(self, system_prompt: str, user_content: str) -> str:
         """Single-turn chat completion. Raises on non-200 responses or empty content."""
+        logger.info("Nebius chat: model=%s prompt=%r", self.model, user_content[:80])
         user_content_payload = (
             [{"type": "text", "text": user_content}]
             if self._user_content_is_blocks
@@ -279,10 +287,12 @@ class NebiusClient:
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         response = requests.post(self.api_url, headers=headers, json=payload)
         if response.status_code != 200:
+            logger.error("Nebius API error %s: %s", response.status_code, response.text[:200])
             raise RuntimeError(f"{self.vendor} API {response.status_code}: {response.text}")
 
         result = response.json()
         if not (result.get("choices") and result["choices"][0].get("message")):
+            logger.error("Nebius unexpected response format: %s", result)
             raise RuntimeError(f"Unexpected response format: {result}")
 
         msg = result["choices"][0]["message"]
@@ -296,7 +306,9 @@ class NebiusClient:
             answer += content
 
         if not answer.strip():
+            logger.error("Nebius empty content in response: %s", result)
             raise RuntimeError(f"Empty content in response: {result}")
+        logger.debug("Nebius chat done: answer_len=%d", len(answer))
         return answer
 
 
@@ -313,9 +325,11 @@ class OllamaClient:
         self.host = host.rstrip("/")
         self.api_url = f"{self.host}/api/chat"
         self.vendor = "Ollama"
+        logger.debug("OllamaClient: host=%s model=%s", self.host, self.model)
 
     def chat(self, system_prompt: str, user_content: str) -> str:
         """Single-turn chat completion. Raises on transport/HTTP errors or empty content."""
+        logger.info("Ollama chat: model=%s prompt=%r", self.model, user_content[:80])
         payload = {
             "model": self.model,
             "messages": [
@@ -327,19 +341,24 @@ class OllamaClient:
         try:
             response = requests.post(self.api_url, json=payload, timeout=600)
         except requests.RequestException as e:
+            logger.error("Cannot reach Ollama at %s: %s", self.host, e)
             raise RuntimeError(f"Cannot reach Ollama at {self.host}: {e}") from e
         if response.status_code != 200:
+            logger.error("Ollama API error %s: %s", response.status_code, response.text[:200])
             raise RuntimeError(f"{self.vendor} API {response.status_code}: {response.text}")
 
         result = response.json()
         content = (result.get("message") or {}).get("content", "") or ""
         if not content.strip():
+            logger.error("Ollama empty content in response: %s", result)
             raise RuntimeError(f"Empty content in response: {result}")
+        logger.debug("Ollama chat done: model=%s answer_len=%d", self.model, len(content))
         return content
 
 
 def build_llm_client(state: SidebarState):
     """Construct the chat client for the provider selected in the sidebar."""
+    logger.info("Building LLM client: provider=%s model=%s", state.llm_provider, state.llm_model)
     if state.llm_provider == "ollama":
         return OllamaClient(model=state.llm_model, host=state.ollama_host)
     return NebiusClient(model=state.llm_model, api_key=state.nebius_api_key)

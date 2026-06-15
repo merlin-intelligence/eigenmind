@@ -6,6 +6,7 @@ so callers don't have to thread a ``QdrantClient`` through every helper.
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
 from typing import Iterable
 
@@ -18,6 +19,8 @@ from eigenmind.config import (
     qdrant_host,
     qdrant_port,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def make_point(
@@ -107,6 +110,7 @@ class QdrantStore:
                 return int(info.config.params.vectors.size)
             return vector_size
         except Exception:
+            logger.info("Creating Qdrant collection %r (dim=%d, cosine)", name, vector_size)
             self._client.create_collection(
                 collection_name=name,
                 vectors_config=models.VectorParams(
@@ -247,6 +251,7 @@ class QdrantStore:
     # ─── deletion ──────────────────────────────────────────────────
 
     def delete_collection(self, name: str) -> None:
+        logger.info("Deleting Qdrant collection %r", name)
         self._client.delete_collection(collection_name=name)
 
     def delete_by_filter(self, collection: str, flt: models.Filter) -> None:

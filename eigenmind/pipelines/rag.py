@@ -9,6 +9,7 @@ Two flavours, both as classes:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import textwrap
@@ -38,6 +39,8 @@ from eigenmind.graph.exploration import (
 from eigenmind.graph.similarity_graph import SimilarityGraph
 from eigenmind.vectordb.store import QdrantStore
 
+logger = logging.getLogger(__name__)
+
 
 # ───────────────────────────────────────────────
 #  Local-LLM RAG pipeline
@@ -60,6 +63,7 @@ class LocalLLMRAG:
 
     def answer(self, collection_name: str, prompt: str) -> tuple[str, list[str]]:
         """Run the full pipeline and return ``(answer, formatted_references)``."""
+        logger.info("RAG query collection=%r prompt=%r", collection_name, prompt[:80])
         retrieved, top_sources = explore_graph_for_context(
             collection_name, prompt, self.store.client, self.embedder,
             max_chunks=MAX_CHUNKS_FOR_CONTEXT, neighbors_to_fetch=NEIGHBORS_TO_FETCH,
@@ -180,6 +184,7 @@ class GraphExplorer:
         prompt: str,
         output_dir: str = "temp_graph_outputs",
     ) -> ExplorerArtifacts:
+        logger.info("Graph explore collection=%r prompt=%r", collection_name, prompt[:80])
         os.makedirs(output_dir, exist_ok=True)
 
         query_vector = self.embedder.encode_query(prompt).tolist()

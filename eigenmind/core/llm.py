@@ -1,10 +1,14 @@
 """Local LLM wrapper (HuggingFace transformers)."""
 from __future__ import annotations
 
+import logging
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from eigenmind.config import LLM_MODEL_NAME, MAX_CONTEXT_LENGTH, hf_token
+
+logger = logging.getLogger(__name__)
 
 
 class LocalLLM:
@@ -34,6 +38,7 @@ class LocalLLM:
 
     def _load(self) -> None:
         token = hf_token()
+        logger.info("Loading LLM %s", self.model_name)
         try:
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=token)
             self._model = AutoModelForCausalLM.from_pretrained(
@@ -43,7 +48,9 @@ class LocalLLM:
                 load_in_4bit=True,
                 token=token,
             )
+            logger.info("LLM ready: %s", self.model_name)
         except Exception as e:  # noqa: BLE001
+            logger.error("Failed to load LLM %s: %s", self.model_name, e)
             raise RuntimeError(f"Error loading LLM model: {e}") from e
 
     def answer(
@@ -56,6 +63,7 @@ class LocalLLM:
 
         Returns ``(assistant_response, formatted_references)``.
         """
+        logger.info("LLM answer: prompt=%r sources=%d", prompt[:80], len(source_details or []))
         if not context.strip():
             return "Context is empty. Cannot generate an answer.", []
 
