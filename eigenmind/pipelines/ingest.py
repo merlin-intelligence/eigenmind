@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import logging
 import os
 import traceback
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 from eigenmind.config import (
     BATCH_SIZE,
@@ -79,6 +82,7 @@ class Ingester:
 
     def _log(self, msg: str) -> None:
         self.logs.append(msg)
+        logger.info("%s", msg)
 
     @contextlib.contextmanager
     def _embedder_scope(self, log):

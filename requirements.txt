@@ -19,3 +19,4 @@ spacy
 scipy
 scikit-learn
 wordcloud
+networkx

@@ -6,6 +6,7 @@ HTML graphs, eigenvalue plot, ranked chunks, Excel export. Does NOT call the LLM
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import textwrap
@@ -28,6 +29,8 @@ from eigenmind.core.embeddings import EmbeddingModel
 from eigenmind.graph.exploration import explore_graph_with_initial_set
 from eigenmind.graph.similarity_graph import SimilarityGraph
 from eigenmind.vectordb.store import QdrantStore
+
+logger = logging.getLogger(__name__)
 
 
 # ───────────────────────────────────────────────
@@ -115,6 +118,7 @@ class GraphExplorer:
         prompt: str,
         output_dir: str = "temp_graph_outputs",
     ) -> ExplorerArtifacts:
+        logger.info("Graph explore collection=%r prompt=%r", collection_name, prompt[:80])
         os.makedirs(output_dir, exist_ok=True)
 
         query_vector = self.embedder.encode_query(prompt).tolist()

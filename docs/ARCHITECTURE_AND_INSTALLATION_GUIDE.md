@@ -5,7 +5,7 @@
 *   **Frontend**: Streamlit multipage app (`streamlit_app.py` + `pages/`)
 *   **Vector Database**: Qdrant (Running locally via Docker)
 *   **Embeddings**: SentenceTransformers (`intfloat/multilingual-e5-base`, 768-dim, multilingual). E5 `query:` / `passage:` prefixes are applied automatically by the wrapper in `eigenmind/core/embeddings.py`. Runs locally on CPU/CUDA/MPS, and is cached process-wide (single instance shared across all Streamlit sessions and users).
-*   **LLM Provider**: Nebius AI (Llama, Kimi, OSS models) via REST API
+*   **LLM Provider**: Two interchangeable backends selectable from the sidebar — **Nebius AI** (Llama, Kimi, OSS models via REST API, requires `NEBIUS_API_KEY`) or **Ollama** (fully local, no API key, no data leaves the machine)
 *   **Processing**: ChunkNorris (parses PDF/DOCX/XLSX/CSV/MD to markdown and chunks every format uniformly), MarkItDown (PowerPoint → markdown), NLTK (Key Concept Extraction & stopwords), SciPy/NumPy (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
 *   **Async Ingestion**: jobs run in a daemon thread decoupled from the browser session (`eigenmind/jobs/`). State is persisted in `user_data/jobs.db` (SQLite, WAL mode) so the UI can reconnect to a running job after a tab closure or network interruption.
 *   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
@@ -184,4 +184,57 @@ Navigate between pages from the Streamlit sidebar:
 
 ```bash
 eigenmind-ingest directories.txt my_collection --device cpu
+```
+
+---
+
+## Logging
+
+Eigenmind uses Python's standard `logging` module, configured centrally in `eigenmind/logging_config.py`. `setup_logging()` is called automatically when the package is imported (via `eigenmind/__init__.py`) — no manual setup is needed.
+
+**Log format**
+
+```
+2025-01-15T14:32:01  INFO      eigenmind.ui.components  Building LLM client: provider=ollama model=qwen2.5:7b
+2025-01-15T14:32:01  INFO      eigenmind.ui.components  Ollama chat: model=qwen2.5:7b prompt='what is intellectual humility?...'
+```
+
+`timestamp  LEVEL     module_name  message`
+
+**Log destinations**
+
+| Run mode | Where logs go |
+|---|---|
+| `streamlit run streamlit_app.py` (dev) | stderr (terminal) |
+| systemd service (`eigenmind.service`) | `streamlit.log` in the working directory |
+
+When running as a systemd service, both stdout and stderr are appended to `streamlit.log`:
+
+```bash
+# Follow live
+tail -f /home/foustry/eigenmind/eigenmind/streamlit.log
+
+# Or via journalctl if StandardOutput/StandardError redirect to the journal instead
+journalctl -u eigenmind -f
+```
+
+**Log levels**
+
+| Level | What it covers |
+|---|---|
+| `INFO` | LLM client construction, chat calls (model + truncated prompt), ingestion pipeline steps |
+| `DEBUG` | Ollama model list, response lengths, detailed client init |
+| `WARNING` | Ollama server unreachable, recoverable issues |
+| `ERROR` | API errors, unexpected response formats (logged before the exception is raised) |
+
+Chatty third-party libraries (`transformers`, `sentence_transformers`, `httpx`, `urllib3`, etc.) are clamped to `WARNING` by default to keep the logs readable.
+
+**Changing the log level**
+
+`setup_logging()` accepts a `level` argument. To enable `DEBUG` output, call it manually before importing other modules, or patch `eigenmind/__init__.py`:
+
+```python
+from eigenmind.logging_config import setup_logging
+import logging
+setup_logging(level=logging.DEBUG)
 ```
