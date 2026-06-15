@@ -1,10 +1,7 @@
-"""End-to-end graph-based RAG pipelines.
+"""Graph-based RAG pipeline.
 
-Two flavours, both as classes:
-
-- :class:`LocalLLMRAG` — uses the local HuggingFace LLM in :mod:`eigenmind.core.llm`.
-- :class:`GraphExplorer` — graph-explorer page output: HTML graphs, eigenvalue plot,
-  ranked chunks, Excel export. Does NOT call the LLM.
+:class:`GraphExplorer` builds the artifacts shown by the Graph Explorer page:
+HTML graphs, eigenvalue plot, ranked chunks, Excel export. Does NOT call the LLM.
 """
 from __future__ import annotations
 
@@ -23,80 +20,17 @@ from pyvis.network import Network
 from eigenmind.config import (
     DOCUMENT_COLORS,
     MAX_CHUNKS,
-    MAX_CHUNKS_FOR_CONTEXT,
     METHOD_COLORS,
-    NEIGHBORS_TO_FETCH,
     NODE_BASE_SIZE,
     NODE_SIZE_MULTIPLIER,
     PROMPT_NODE_COLOR,
 )
 from eigenmind.core.embeddings import EmbeddingModel
-from eigenmind.core.llm import LocalLLM
-from eigenmind.graph.exploration import (
-    explore_graph_for_context,
-    explore_graph_with_initial_set,
-)
+from eigenmind.graph.exploration import explore_graph_with_initial_set
 from eigenmind.graph.similarity_graph import SimilarityGraph
 from eigenmind.vectordb.store import QdrantStore
 
 logger = logging.getLogger(__name__)
-
-
-# ───────────────────────────────────────────────
-#  Local-LLM RAG pipeline
-# ───────────────────────────────────────────────
-
-class LocalLLMRAG:
-    """Graph exploration + singular/hinge/theta selection + local-LLM answer."""
-
-    def __init__(
-        self,
-        store: QdrantStore | None = None,
-        embedder: EmbeddingModel | None = None,
-        llm: LocalLLM | None = None,
-        device: str | None = None,
-    ):
-        self.store = store or QdrantStore()
-        self._owns_embedder = embedder is None
-        self.embedder = embedder or EmbeddingModel(device=device)
-        self.llm = llm or LocalLLM()
-
-    def answer(self, collection_name: str, prompt: str) -> tuple[str, list[str]]:
-        """Run the full pipeline and return ``(answer, formatted_references)``."""
-        logger.info("RAG query collection=%r prompt=%r", collection_name, prompt[:80])
-        retrieved, top_sources = explore_graph_for_context(
-            collection_name, prompt, self.store.client, self.embedder,
-            max_chunks=MAX_CHUNKS_FOR_CONTEXT, neighbors_to_fetch=NEIGHBORS_TO_FETCH,
-        )
-
-        graph = SimilarityGraph(retrieved)
-        tags_by_id = graph.selection_tags(top_k=10) if graph.n > 2 else {}
-        # Fold in singular tags even when n<=2 (handled inside selection_tags but be explicit)
-        for p in graph.singular_chunks():
-            tags_by_id.setdefault(p.id, [])
-            if "Singular" not in tags_by_id[p.id]:
-                tags_by_id[p.id].insert(0, "Singular")
-
-        selected_points = [p for p in retrieved if tags_by_id.get(p.id)]
-        refs_for_display = [
-            {
-                "filename": p.payload.get("filename", "N/A"),
-                "text": p.payload.get("text", "").replace("?", "'"),
-                "is_singular": "Singular" in tags_by_id[p.id],
-                "tags": tags_by_id[p.id],
-            }
-            for p in selected_points
-        ]
-
-        full_context = " ".join(p.payload.get("text", "").replace("?", "'") for p in selected_points)
-        if not full_context.strip():
-            full_context = " ".join(p.payload.get("text", "").replace("?", "'") for p in retrieved)
-            refs_for_display = top_sources
-
-        if self._owns_embedder:
-            self.embedder.release()
-
-        return self.llm.answer(prompt, full_context, refs_for_display)
 
 
 # ───────────────────────────────────────────────

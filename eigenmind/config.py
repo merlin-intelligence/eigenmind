@@ -1,8 +1,7 @@
 """Single source of truth for constants and env-based secrets.
 
 All other modules read from here instead of redefining their own constants.
-Secrets (HF_TOKEN, NEBIUS_API_KEY...) are read from environment variables only —
-never hard-coded.
+Secrets (NEBIUS_API_KEY, ...) are read from environment variables only — never hard-coded.
 """
 from __future__ import annotations
 
@@ -44,10 +43,6 @@ THETA_MAX_ITERS = 400
 THETA_STEP0 = 0.25
 THETA_DIAG_SHIFT = 1e-2
 
-# ── Local LLM (used by eigenmind.core.llm) ──
-LLM_MODEL_NAME = "Qwen/Qwen2-0.5B-Instruct"
-MAX_CONTEXT_LENGTH = 4096
-
 # ── Chat-page LLM backend ──
 # The /ask/ page can answer either through the Nebius / AI Hub cloud API or a
 # local Ollama server. The provider is selected with the LLM_PROVIDER env var.
@@ -86,12 +81,6 @@ def qdrant_host() -> str:
 
 def qdrant_port() -> int:
     return int(os.getenv("QDRANT_PORT", "6333"))
-
-
-def hf_token() -> str | None:
-    """HuggingFace token from env. Returns None if not set."""
-    tok = os.getenv("HF_TOKEN", "").strip()
-    return tok or None
 
 
 def nebius_api_key() -> str:

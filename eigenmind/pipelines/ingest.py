@@ -82,7 +82,7 @@ class Ingester:
 
     def _log(self, msg: str) -> None:
         self.logs.append(msg)
-        logger.info(msg)
+        logger.info("%s", msg)
 
     @contextlib.contextmanager
     def _embedder_scope(self, log):
