@@ -47,6 +47,8 @@ def _walk_files(directories: list[str], extensions: tuple[str, ...], skip: set[s
         for root, _, files in os.walk(real):
             for fn in files:
                 if fn.lower().endswith(extensions):
+                    if fn.startswith("~$"):
+                        continue
                     if fn in skip:
                         skipped += 1
                         continue

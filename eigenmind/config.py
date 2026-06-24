@@ -29,6 +29,8 @@ BATCH_SIZE = 100
 CHUNKNORRIS_EXTENSIONS = (".pdf", ".docx", ".xlsx", ".csv", ".pptx", ".txt", ".md")
 # Formats we recognise but do not ingest yet — reported with a "not supported" notice.
 UNSUPPORTED_EXTENSIONS = (".json",)
+# Global toggle for OCR (Tesseract).
+ENABLE_OCR = os.getenv("ENABLE_OCR", "false").lower() == "true"
 
 # ── Graph exploration ──
 MAX_CHUNKS = 100
@@ -131,4 +133,31 @@ def ocr_available() -> bool:
     PyMuPDF uses the integrated Tesseract engine and locates its ``*.traineddata`` files
     through this env var — no extra Python OCR packages are needed.
     """
-    return bool(os.environ.get("TESSDATA_PREFIX"))
+    if not ENABLE_OCR:
+        return False
+    prefix = os.environ.get("TESSDATA_PREFIX")
+    if not prefix:
+        return False
+    # ChunkNorris/PyMuPDF expects TESSDATA_PREFIX to point directly to the folder
+    # containing .traineddata files. Some systems set it to the parent.
+    if os.path.isdir(os.path.join(prefix, "tessdata")):
+        os.environ["TESSDATA_PREFIX"] = os.path.join(prefix, "tessdata")
+    return True
+
+
+def get_ocr_languages() -> str:
+    """Return a string of available Tesseract languages (e.g. 'eng+fra').
+
+    Defaults to 'eng' if TESSDATA_PREFIX is not set or no data files are found.
+    """
+    if not ocr_available():
+        return "eng"
+
+    tessdata_dir = os.environ["TESSDATA_PREFIX"]
+    try:
+        langs = [f.split(".")[0] for f in os.listdir(tessdata_dir) if f.endswith(".traineddata")]
+        # Exclude 'osd' (Orientation and Script Detection) which is not a language
+        langs = [l for l in langs if l != "osd"]
+        return "+".join(sorted(langs)) if langs else "eng"
+    except Exception:
+        return "eng"
