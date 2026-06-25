@@ -10,7 +10,7 @@ import os
 from chunknorris.chunkers import MarkdownChunker
 from chunknorris.parsers import CSVParser, DocxParser, ExcelParser, MarkdownParser, PdfParser
 
-from eigenmind.config import ocr_available
+from eigenmind.config import get_ocr_languages, ocr_available
 
 
 def _file_parser_for(ext: str):
@@ -20,7 +20,10 @@ def _file_parser_for(ext: str):
     parsed via :meth:`MarkdownParser.parse_string` in :func:`chunk_with_chunknorris`.
     """
     if ext == ".pdf":
-        return PdfParser(use_ocr="auto" if ocr_available() else "never")
+        return PdfParser(
+            use_ocr="auto" if ocr_available() else "never",
+            ocr_language=get_ocr_languages(),
+        )
     if ext == ".docx":
         return DocxParser()
     if ext == ".xlsx":
@@ -52,8 +55,9 @@ def chunk_with_chunknorris(filepath: str):
 
     if ext == ".pptx":
         doc = MarkdownParser().parse_string(_pptx_to_markdown(filepath))
-    elif ext == ".txt":
-        # MarkdownParser.parse_file only accepts ".md"; feed the raw text as a string.
+    elif ext in (".txt", ".md"):
+        # MarkdownParser.parse_file only accepts ".md" but can be strict with encoding.
+        # We read manually with errors="ignore" to avoid UnicodeDecodeError.
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             doc = MarkdownParser().parse_string(f.read())
     else:
