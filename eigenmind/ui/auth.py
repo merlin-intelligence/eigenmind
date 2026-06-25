@@ -8,45 +8,55 @@ import os
 import streamlit as st
 
 USER_DB_PATH = "user_data/users.json"
+PUBLIC_PREFIX = "public_"
 
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-def load_user_db() -> dict[str, str]:
-    """Load (and bootstrap from secrets if missing) the user/password-hash database."""
+def _is_v2(db: dict) -> bool:
+    return "users" in db and isinstance(db.get("users"), dict)
+
+
+def load_user_db() -> dict:
+    """Load the user DB. Returns v2 format: {"admins": [...], "users": {username: hash}}."""
     if not os.path.exists(USER_DB_PATH):
         os.makedirs("user_data", exist_ok=True)
-        initial: dict[str, str] = {}
+        initial: dict = {"admins": [], "users": {}}
         try:
             if "USERS" in st.secrets:
-                initial = {u: hash_password(p) for u, p in st.secrets["USERS"].items()}
+                initial["users"] = {u: hash_password(p) for u, p in st.secrets["USERS"].items()}
             elif "APP_PASSWORD" in st.secrets:
-                initial = {
+                initial["users"] = {
                     st.secrets["APP_USERNAME"].strip():
                         hash_password(st.secrets["APP_PASSWORD"].strip())
                 }
         except Exception:
             pass
         with open(USER_DB_PATH, "w") as f:
-            json.dump(initial, f)
+            json.dump(initial, f, indent=2)
         return initial
     try:
         with open(USER_DB_PATH, "r") as f:
-            return json.load(f)
+            db = json.load(f)
+        if _is_v2(db):
+            return db
+        # Migrate v1 flat {user: hash} to v2
+        return {"admins": [], "users": db}
     except Exception:
-        return {}
+        return {"admins": [], "users": {}}
 
 
-def save_user_db(db: dict[str, str]) -> None:
+def save_user_db(db: dict) -> None:
     with open(USER_DB_PATH, "w") as f:
-        json.dump(db, f)
+        json.dump(db, f, indent=2)
 
 
 def check_password() -> bool:
     """Render the login UI and return True iff the user is authenticated."""
-    users = load_user_db()
+    db = load_user_db()
+    users = db["users"]
     if not users:
         return True
 
@@ -95,6 +105,12 @@ def current_user() -> str:
     return st.session_state.get("authenticated_user", "guest")
 
 
+def is_admin() -> bool:
+    """Return True if the current user has admin privileges."""
+    db = load_user_db()
+    return current_user() in db.get("admins", [])
+
+
 def get_user_token_path() -> str:
     """Per-user file used to cache OAuth tokens."""
     user_dir = os.path.join("user_data", current_user())
@@ -103,12 +119,34 @@ def get_user_token_path() -> str:
 
 
 def qdrant_collection_for(display_name: str) -> str:
-    """Namespace a display name with the current user."""
+    """Namespace a display name with the current user (private collection)."""
     return f"{current_user()}_{display_name}"
 
 
+def public_qdrant_name_for(display_name: str) -> str:
+    """Return the Qdrant collection name for a public collection."""
+    return f"{PUBLIC_PREFIX}{display_name}"
+
+
 def display_name_from(qdrant_name: str) -> str | None:
+    """Return the display name if this collection belongs to the current user, else None."""
     prefix = f"{current_user()}_"
     if qdrant_name.startswith(prefix):
         return qdrant_name[len(prefix):]
     return None
+
+
+def list_visible_collections(all_qdrant: list[str]) -> list[tuple[str, str]]:
+    """Return (display_label, qdrant_name) for collections visible to the current user.
+
+    Includes the user's own private collections and all public collections.
+    Public collections are labeled with a '[public] ' prefix in the display label.
+    """
+    user = current_user()
+    result: list[tuple[str, str]] = []
+    for name in all_qdrant:
+        if name.startswith(f"{user}_"):
+            result.append((name[len(f"{user}_"):], name))
+        elif name.startswith(PUBLIC_PREFIX):
+            result.append((f"[public] {name[len(PUBLIC_PREFIX):]}", name))
+    return sorted(result)

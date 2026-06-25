@@ -221,8 +221,8 @@ def render_sidebar() -> SidebarState:
                     st.error("New passwords don't match.")
                 else:
                     db = load_user_db()
-                    if db.get(user) == hash_password(old_p):
-                        db[user] = hash_password(new_p)
+                    if db["users"].get(user) == hash_password(old_p):
+                        db["users"][user] = hash_password(new_p)
                         save_user_db(db)
                         st.success("Password updated!")
                     else:
