@@ -9,8 +9,7 @@ import streamlit as st
 from eigenmind.pipelines.rag import GraphExplorer
 from eigenmind.ui.auth import (
     check_password,
-    display_name_from,
-    qdrant_collection_for,
+    list_visible_collections,
 )
 from eigenmind.ui.components import (
     empty_state,
@@ -34,16 +33,18 @@ if not sb.is_connected:
     st.stop()
 
 store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
-existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
+_visible = list_visible_collections(store.list_collections())
+col_labels = [label for label, _ in _visible]
+col_map = {label: qdrant_name for label, qdrant_name in _visible}
 
-if not existing_cols:
+if not col_labels:
     empty_state("📂", "No collections found. Go to <strong>/enrich corpus/</strong> to ingest documents first.")
     st.stop()
 
 col_e1, col_e2 = st.columns([1, 2])
 with col_e1:
-    collection_name = st.selectbox("collection", existing_cols)
-    pt_count, _ = store.collection_stats(qdrant_collection_for(collection_name))
+    collection_name = st.selectbox("collection", col_labels)
+    pt_count, _ = store.collection_stats(col_map[collection_name])
     if pt_count:
         st.markdown(
             f'<p style="font-family:\'DM Mono\',monospace;font-size:0.72rem;color:#8a6a50">'
@@ -68,7 +69,7 @@ if st.button("▶ generate graph", type="primary"):
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     explorer = GraphExplorer(load_nlp(), store=store, embedder=get_embedder(sb.selected_device))
                     art = explorer.explore(
-                        qdrant_collection_for(collection_name), prompt, output_dir=tmp_dir,
+                        col_map[collection_name], prompt, output_dir=tmp_dir,
                     )
 
                     st.success(f"✓ Subgraph built — {len(art.ranked_chunks)} singular chunks identified")

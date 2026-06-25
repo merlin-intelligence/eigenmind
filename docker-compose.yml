@@ -7,7 +7,7 @@ services:
     restart: always
     network_mode: host    
     volumes:
-      - /home/foustry/qdrant_storage/qdrant_storage:/qdrant/storage
+      - qdrant_storage/qdrant_storage:/qdrant/storage
 
 volumes:
   qdrant_storage:

@@ -9,8 +9,7 @@ import streamlit as st
 from eigenmind.pipelines.rag import GraphExplorer
 from eigenmind.ui.auth import (
     check_password,
-    display_name_from,
-    qdrant_collection_for,
+    list_visible_collections,
 )
 from eigenmind.ui.components import (
     build_llm_client,
@@ -35,16 +34,19 @@ if not sb.is_connected:
     st.stop()
 
 store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
-existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
+_visible = list_visible_collections(store.list_collections())
+col_labels = [label for label, _ in _visible]
+col_map = {label: qdrant_name for label, qdrant_name in _visible}
 
-if not existing_cols:
+if not col_labels:
     empty_state("📂", "No collections found. Ingest documents in <strong>/enrich corpus/</strong> first.")
     st.stop()
 
 col_q1, col_q2 = st.columns([1, 2])
 with col_q1:
-    collection_name = st.selectbox("collection", existing_cols)
-    pt_count, _ = store.collection_stats(qdrant_collection_for(collection_name))
+    collection_name = st.selectbox("collection", col_labels)
+    qdrant_col = col_map[collection_name]
+    pt_count, _ = store.collection_stats(qdrant_col)
     if pt_count:
         st.markdown(
             f'<p style="font-family:\'DM Mono\',monospace;font-size:0.72rem;color:#8a6a50">'
@@ -93,7 +95,7 @@ with col_q2:
 def _run_query() -> None:
     with st.spinner("retrieving context and generating…"):
         try:
-            qdrant_col = qdrant_collection_for(collection_name)
+            qdrant_col = col_map[collection_name]
 
             embedder = get_embedder(sb.selected_device)
 
