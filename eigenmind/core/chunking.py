@@ -9,6 +9,25 @@ import os
 
 from chunknorris.chunkers import MarkdownChunker
 from chunknorris.parsers import CSVParser, DocxParser, ExcelParser, MarkdownParser, PdfParser
+from collections import Counter
+from chunknorris.parsers.pdf.pdf_parser import TextLine
+
+# Monkeypatch PdfParser._get_line_spacing to handle empty linespace_counts (ValueError: max() arg is an empty sequence)
+_orig_get_line_spacing = PdfParser._get_line_spacing
+
+@staticmethod
+def _safe_get_line_spacing(lines: list[TextLine]) -> float:
+    linespace_counts = Counter(
+        (
+            round(curr_line.bbox.y0 - prev_line.bbox.y1, 1)
+            for curr_line, prev_line in zip(lines[1:], lines[:-1])
+        )
+    )
+    if not linespace_counts:
+        return 0.0
+    return max(linespace_counts, key=linespace_counts.get)
+
+PdfParser._get_line_spacing = _safe_get_line_spacing
 
 from eigenmind.config import get_ocr_languages, ocr_available
 
