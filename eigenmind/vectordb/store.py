@@ -88,9 +88,7 @@ class QdrantStore:
 
     def list_collections(self) -> list[str]:
         try:
-            cols = {c.name for c in self._client.get_collections().collections}
-            aliases = {a.alias_name for a in self._client.get_aliases().aliases}
-            return sorted(list(cols | aliases))
+            return sorted(c.name for c in self._client.get_collections().collections)
         except Exception:
             return []
 
