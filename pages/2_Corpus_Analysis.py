@@ -17,8 +17,7 @@ from eigenmind.core.corpus_analysis import (
 )
 from eigenmind.ui.auth import (
     check_password,
-    display_name_from,
-    qdrant_collection_for,
+    list_visible_collections,
 )
 from eigenmind.ui.components import empty_state, render_sidebar, section_header
 from eigenmind.ui.styles import apply_global_styles
@@ -36,14 +35,16 @@ if not sb.is_connected:
     st.stop()
 
 store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
-existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
+_visible = list_visible_collections(store.list_collections())
+col_labels = [label for label, _ in _visible]
+col_map = {label: qdrant_name for label, qdrant_name in _visible}
 
-if not existing_cols:
+if not col_labels:
     empty_state("📂", "No collections found. Ingest documents via <strong>/enrich corpus/</strong> first.")
     st.stop()
 
-collection_name = st.selectbox("collection", existing_cols)
-qdrant_col = qdrant_collection_for(collection_name)
+collection_name = st.selectbox("collection", col_labels)
+qdrant_col = col_map[collection_name]
 
 with st.spinner("reconstructing documents from chunks…"):
     records = store.all_documents(qdrant_col)

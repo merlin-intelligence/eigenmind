@@ -8,7 +8,7 @@
 *   **LLM Provider**: Two interchangeable backends selectable from the sidebar — **Nebius AI** (Llama, Kimi, OSS models via REST API, requires `NEBIUS_API_KEY`) or **Ollama** (fully local, no API key, no data leaves the machine)
 *   **Processing**: ChunkNorris (parses PDF/DOCX/XLSX/CSV/MD to markdown and chunks every format uniformly), MarkItDown (PowerPoint → markdown), NLTK (Key Concept Extraction & stopwords), SciPy/NumPy (Graph Mathematics), scikit-learn (KMeans, PCA, TF-IDF for corpus analysis), wordcloud (visual term frequency)
 *   **Async Ingestion**: jobs run in a daemon thread decoupled from the browser session (`eigenmind/jobs/`). State is persisted in `user_data/jobs.db` (SQLite, WAL mode) so the UI can reconnect to a running job after a tab closure or network interruption.
-*   **Multi-User**: per-user authentication, isolated Qdrant collections (namespaced `<user>_<collection>`), and per-user OAuth token storage under `user_data/<user>/`.
+*   **Multi-User**: per-user authentication with role support (regular users and admins). Collections are either **private** (namespaced `<user>_<collection>`, visible only to the owner) or **public** (namespaced `public_<collection>`, visible to all authenticated users, writable by admins only). Per-user OAuth token storage under `user_data/<user>/`.
 
 ---
 
@@ -105,6 +105,43 @@ bob   = "bob_password"
 
 When both sources are present, `st.secrets` takes precedence over `.env`.
 
+### Managing users and admins
+
+User accounts and admin roles are stored in `user_data/users.json`. The file format is:
+
+```json
+{
+  "admins": ["alice"],
+  "users": {
+    "alice": "<sha256-of-password>",
+    "bob":   "<sha256-of-password>"
+  }
+}
+```
+
+**Defining admins**: add the username to the `"admins"` list. Admins can create and delete public collections; regular users cannot.
+
+**Adding a user manually** (without going through the UI):
+
+```bash
+python3 -c "
+import hashlib, json
+
+def h(p): return hashlib.sha256(p.encode()).hexdigest()
+
+with open('user_data/users.json') as f:
+    db = json.load(f)
+
+db['users']['newuser'] = h('their_password')
+# db['admins'].append('newuser')  # uncomment to make them admin
+
+with open('user_data/users.json', 'w') as f:
+    json.dump(db, f, indent=2)
+"
+```
+
+> **Migration from v1**: if your `users.json` is a flat `{"user": "hash"}` (format used before the public collections feature), the app migrates it automatically in memory on the first read. The file on disk is rewritten to v2 format the next time any user changes their password. You can also convert it manually by wrapping it in `{"admins": [], "users": {...}}`.
+
 ### Choosing the LLM backend for `/ask/`
 
 The Chat page can answer through either backend, picked from the **backend** toggle in the sidebar. `LLM_PROVIDER` only sets which one is selected by default on startup:
@@ -179,6 +216,21 @@ Navigate between pages from the Streamlit sidebar:
 | `pages/3_Chat.py`           | `/ask/` - Hybrid RAG question answering against a selected collection |
 | `pages/4_Graph_Explorer.py` | `/explore graphs/` - Subgraph view (Singular / Hinge / Theta nodes) |
 | `pages/5_Manage.py`         | `/manage/` - List & delete documents per ingestion date |
+
+### Collection visibility
+
+Eigenmind supports two collection types with different visibility rules:
+
+| Type | Qdrant name | Who can see it | Who can write/delete |
+|---|---|---|---|
+| **Private** | `<user>_<name>` | Owner only | Owner only |
+| **Public** | `public_<name>` | All authenticated users | Admins only |
+
+**Creating a public collection**: log in as an admin, go to `/enrich corpus/`, choose *Create New*, and tick the **"Public collection"** checkbox before ingesting. The checkbox is only shown to admins.
+
+**Reading a public collection**: any authenticated user can select it in `/analyze corpus/`, `/ask/`, and `/explore graphs/`. It appears in the dropdown with a `[public]` prefix (e.g. `[public] shared_docs`).
+
+**Deleting a public collection**: only admins can delete public collections from `/manage/`. Regular users see a read-only view for public collections.
 
 ### CLI ingestion (no UI)
 

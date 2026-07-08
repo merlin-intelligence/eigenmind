@@ -16,8 +16,10 @@ from eigenmind.jobs.store import JobStore
 from eigenmind.ui.auth import (
     check_password,
     current_user,
-    display_name_from,
     get_user_token_path,
+    is_admin,
+    list_visible_collections,
+    public_qdrant_name_for,
     qdrant_collection_for,
 )
 from eigenmind.ui.components import (
@@ -74,7 +76,11 @@ if not sb.is_connected:
     st.stop()
 
 store = QdrantStore(sb.qdrant_host, sb.qdrant_port)
-existing_cols = sorted(c for c in (display_name_from(c) for c in store.list_collections()) if c)
+_visible = list_visible_collections(store.list_collections())
+# For ingestion, non-admins can only write to their own private collections.
+_editable = _visible if is_admin() else [(l, q) for l, q in _visible if not l.startswith("[public] ")]
+existing_col_labels = [label for label, _ in _editable]
+existing_col_map = {label: qdrant_name for label, qdrant_name in _editable}
 
 # ── Source & collection selection ─────────────────────────────────────
 col_src, col_mode = st.columns(2)
@@ -89,13 +95,15 @@ with col_mode:
     mode_options = ["Create New", "Select Existing"]
     mode = st.radio("collection mode", mode_options, horizontal=True)
 
-if mode == "Select Existing" and not existing_cols:
-    st.warning("No existing collections for this user — falling back to **Create New**.")
+if mode == "Select Existing" and not existing_col_labels:
+    st.warning("No existing collections — falling back to **Create New**.")
     mode = "Create New"
 
 if mode == "Select Existing":
-    collection_name = st.selectbox("target collection", existing_cols, key="add_col_sel")
-    pt_count, vec_size = store.collection_stats(qdrant_collection_for(collection_name))
+    selected_label = st.selectbox("target collection", existing_col_labels, key="add_col_sel")
+    qdrant_col_name = existing_col_map[selected_label]
+    collection_name = selected_label
+    pt_count, vec_size = store.collection_stats(qdrant_col_name)
     if pt_count is not None:
         c1, c2, c3 = st.columns(3)
         c1.markdown(metric_card("vectors stored", f"{pt_count:,}", "in this collection"),
@@ -107,6 +115,13 @@ if mode == "Select Existing":
                     unsafe_allow_html=True)
 else:
     collection_name = st.text_input("new collection name", "eigenmind_collection")
+    is_public_new = is_admin() and st.checkbox(
+        "Public collection (visible to all users)", value=False, key="is_public_col"
+    )
+    qdrant_col_name = (
+        public_qdrant_name_for(collection_name) if is_public_new
+        else qdrant_collection_for(collection_name)
+    )
 
 st.markdown("---")
 ocr_html = (badge("Hinge", text="✓ OCR active")
@@ -116,7 +131,7 @@ st.markdown(f"<p>{ocr_html}</p>", unsafe_allow_html=True)
 
 user_dir = os.path.join("user_data", current_user())
 os.makedirs(user_dir, exist_ok=True)
-history_file = os.path.join(user_dir, f"history_{collection_name}.txt")
+history_file = os.path.join(user_dir, f"history_{qdrant_col_name}.txt")
 
 
 # ── Job helpers ───────────────────────────────────────────────────────
@@ -131,7 +146,7 @@ def _submit_job(dirs_content: bytes) -> str:
         f.write(dirs_content)
     _job_store().create_job(
         job_id=job_id,
-        collection=qdrant_collection_for(collection_name),
+        collection=qdrant_col_name,
         directories_file=dirs_path,
         device=sb.selected_device,
         history_file=history_file,
@@ -192,7 +207,7 @@ def _render_job_status() -> None:
 # session has no active_job_id (e.g. user reconnected after a tab closure),
 # offer to reattach to the running job.
 if "active_job_id" not in st.session_state:
-    latest = _job_store().latest_job_for(qdrant_collection_for(collection_name))
+    latest = _job_store().latest_job_for(qdrant_col_name)
     if latest and latest["status"] in ("running", "pending"):
         st.info(
             f"An ingestion is already running for **{collection_name}** "
