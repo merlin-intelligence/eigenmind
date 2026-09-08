@@ -1,0 +1,6 @@
+# Each line is a file pattern followed by one or more owners.
+# These owners are auto-requested for review on any matching PR
+# (once "Require review from Code Owners" is enabled in the branch
+# protection rule for `main` — see CONTRIBUTING.md).
+
+* @schmarion @foustry

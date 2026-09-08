@@ -96,7 +96,7 @@ gh pr create --base main --title "(feat:auth) Add SSO login" --body "Closes #42"
 
 ### 5. Wait for review from the code owners
 
-The code owners listed in [CODEOWNERS](github/CODEOWNERS) will be automatically requested for review. Please be patient — reviewers will look at correctness, tests, style, and overall fit.
+The code owners listed in [CODEOWNERS](.github/CODEOWNERS) will be automatically requested for review. Please be patient — reviewers will look at correctness, tests, style, and overall fit.
 
 ### 6. Iterate, then clean up
 
