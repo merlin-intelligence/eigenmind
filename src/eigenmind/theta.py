@@ -1,4 +1,5 @@
 """Lovász θ approximation (subgradient) + diversity picker on the conflict graph."""
+
 from __future__ import annotations
 
 import numpy as np

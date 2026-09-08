@@ -1,4 +1,5 @@
 """Singular chunks via eigenvector poles of the symmetric normalized Laplacian."""
+
 from __future__ import annotations
 
 import textwrap
@@ -9,7 +10,9 @@ from scipy.linalg import eigh
 from eigenmind.defaults import SIMILARITY_THRESHOLD
 
 
-def build_similarity_matrix(embedding_matrix: np.ndarray, threshold: float = SIMILARITY_THRESHOLD) -> np.ndarray:
+def build_similarity_matrix(
+    embedding_matrix: np.ndarray, threshold: float = SIMILARITY_THRESHOLD
+) -> np.ndarray:
     """Cosine-similarity matrix with sub-threshold values zeroed and zero diagonal.
 
     ``embedding_matrix`` rows must already be unit-normalized (L2 norm ≈ 1):
@@ -144,7 +147,9 @@ def analyze_laplacian_eigenvectors(
         for idx in reversed(pos_idx):
             point = id_to_point[ordered_ids[idx]]
             text = " ".join(point.payload.get("text", "N/A").split())
-            wrapped = textwrap.fill(text, width=120, initial_indent=" " * 6, subsequent_indent=" " * 6)
+            wrapped = textwrap.fill(
+                text, width=120, initial_indent=" " * 6, subsequent_indent=" " * 6
+            )
             summary.append(
                 f"    - (Score: {ev[idx]:.3f}) "
                 f"[{point.payload.get('chunk_number', 'N/A')} | {point.payload.get('filename', 'N/A')}]"
@@ -155,7 +160,9 @@ def analyze_laplacian_eigenvectors(
         for idx in neg_idx:
             point = id_to_point[ordered_ids[idx]]
             text = " ".join(point.payload.get("text", "N/A").split())
-            wrapped = textwrap.fill(text, width=120, initial_indent=" " * 6, subsequent_indent=" " * 6)
+            wrapped = textwrap.fill(
+                text, width=120, initial_indent=" " * 6, subsequent_indent=" " * 6
+            )
             summary.append(
                 f"    - (Score: {ev[idx]:.3f}) "
                 f"[{point.payload.get('chunk_number', 'N/A')} | {point.payload.get('filename', 'N/A')}]"

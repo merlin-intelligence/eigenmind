@@ -1,4 +1,5 @@
 """ℓ∞-connectivity optimizer + hinge ranking ("relevant but not obvious" chunks)."""
+
 from __future__ import annotations
 
 import heapq

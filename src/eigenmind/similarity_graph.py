@@ -6,6 +6,7 @@ every time. The lower-level pure functions in
 :mod:`eigenmind.singular`, :mod:`eigenmind.connectivity` and
 :mod:`eigenmind.theta` remain available and are still directly tested.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -53,11 +54,13 @@ class SimilarityGraph:
         self.id_to_point = {p.id: p for p in retrieved_points}
         self.ordered_ids = [p.id for p in retrieved_points]
         self.embedding_matrix = (
-            np.array([p.vector for p in retrieved_points])
-            if retrieved_points
+            np.array([p.vector for p in retrieved_points]) if retrieved_points else np.empty((0, 0))
+        )
+        self.W = (
+            build_similarity_matrix(self.embedding_matrix, threshold)
+            if len(retrieved_points)
             else np.empty((0, 0))
         )
-        self.W = build_similarity_matrix(self.embedding_matrix, threshold) if len(retrieved_points) else np.empty((0, 0))
         self._x_star: np.ndarray | None = None
         self._conflict_mask: np.ndarray | None = None
         self._theta_factor: np.ndarray | None = None
@@ -79,7 +82,9 @@ class SimilarityGraph:
 
     def eigenvalue_analysis(self, output_filename_base: str):
         """Persist the eigenvalue plot and return the per-chunk EV pole tags."""
-        return analyze_laplacian_eigenvectors(self.W, self.id_to_point, self.ordered_ids, output_filename_base)
+        return analyze_laplacian_eigenvectors(
+            self.W, self.id_to_point, self.ordered_ids, output_filename_base
+        )
 
     # ─── strategy 2: ℓ∞ connectivity + hinge ranking ───────────────
 
@@ -111,7 +116,10 @@ class SimilarityGraph:
         if self._theta_factor is None:
             _, _, Y, _, _, _ = theta_subgradient_approximation(
                 self.conflict_mask(),
-                max_iters=max_iters, step0=step0, diag_shift=diag_shift, rank=rank,
+                max_iters=max_iters,
+                step0=step0,
+                diag_shift=diag_shift,
+                rank=rank,
             )
             self._theta_factor = Y
         return self._theta_factor

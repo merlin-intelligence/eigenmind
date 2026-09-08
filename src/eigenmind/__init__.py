@@ -4,6 +4,7 @@ Public API re-exported here for convenience::
 
     from eigenmind import SimilarityGraph
 """
+
 from __future__ import annotations
 
 from eigenmind.connectivity import (

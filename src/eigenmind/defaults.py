@@ -3,6 +3,7 @@
 Every public function accepts these as overridable keyword arguments; the
 values below are the ones the algorithms were originally tuned against.
 """
+
 from __future__ import annotations
 
 SIMILARITY_THRESHOLD = 0.65

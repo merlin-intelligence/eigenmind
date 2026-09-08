@@ -4,6 +4,20 @@ Eigenmind is a decision-intelligence engine that turns tacit expert knowledge in
 ## Install
 
 ```bash
+pip install eigenmind
+```
+
+Need the eigenvalue-spectrum plotting helper (`eigenvalue_analysis`)? Install
+the `viz` extra too:
+
+```bash
+pip install "eigenmind[viz]"
+```
+
+To track an unreleased change instead of the latest PyPI release, install
+straight from GitHub:
+
+```bash
 pip install git+https://github.com/merlin-intelligence/eigenmind.git
 ```
 
