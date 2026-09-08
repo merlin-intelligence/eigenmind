@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eigenmind"
-version = "0.1.0"
+version = "0.1.1"
 description = "Eigenvalue-based graph computations for semantic chunk retrieval (similarity graph, spectral analysis, Lovász theta diversity)."
 readme = "README.md"
 requires-python = ">=3.10"
