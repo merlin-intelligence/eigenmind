@@ -1,97 +1,149 @@
-# eigenmind
-Eigenmind is a decision-intelligence engine that turns tacit expert knowledge into reusable decision frameworks, ideal for data-scarce settings. Its core uses eigenvalue-based optimisation on semantic graphs.
+# eigenmind (v1.8)
 
-## Install
+Eigenmind is an eigenvalue-based graph intelligence engine for semantic selection and chunk retrieval in high-dimensional embedding spaces.
+
+Package **v1.8** provides three mathematically grounded selection mechanisms, upstream graph construction helpers, and evaluation baselines:
+
+1. **Spectral Attention (2.0)** — Structural thematic representatives and extreme points (spectral vertices via Successive Projection Algorithm / SPA, and spectral medoids on row-normalized Laplacian embeddings). Replaces legacy `singular.py`.
+2. **Semantic Bridges (2.0)** — Cross-component bridging points selected as a Maximum Spanning Tree (MST) of single-linkage cosine affinities (Kruskal) between connected components. Replaces legacy `connectivity.py`.
+3. **Supported Diversity (2.0)** — Exact budget-constrained stable set under neighborhood support constraints ($Ax \ge 1$), solved via Mixed-Integer Linear Programming (MILP with HiGHS / `scipy.optimize.milp`) and LP-greedy fallback. Replaces legacy `theta.py`.
+
+Upstream and downstream utilities included:
+- **Graph Construction** (`graph_construction.py`) — Embedding centring, top-PC removal ("all-but-the-top"), quantile thresholding, mutual $k$-NN graphs, and topology summaries.
+- **Selection Baselines** (`selection_baselines.py`) — MMR, Submodular Facility Location, $k$-DPP Greedy MAP, and Farthest-First geometric traversal.
+- **Scale and Stability Check** (`scale_check.py`) — Diagnostic verification of mechanics at scale across density quantiles and noise perturbations.
+
+---
+
+## Installation
 
 ```bash
-pip install eigenmind
+pip install -e .
 ```
 
-Need the eigenvalue-spectrum plotting helper (`eigenvalue_analysis`)? Install
-the `viz` extra too:
-
+For development (running tests and linter):
 ```bash
-pip install "eigenmind[viz]"
+pip install -e ".[dev]"
 ```
 
-To track an unreleased change instead of the latest PyPI release, install
-straight from GitHub:
+Requirements: Python $\ge$ 3.10, NumPy, SciPy $\ge$ 1.9.
 
-```bash
-pip install git+https://github.com/merlin-intelligence/eigenmind.git
-```
+---
 
-## Usage
+## Python API Usage
+
+### High-Level API (`SimilarityGraph`)
+
+`SimilarityGraph` holds the underlying cosine matrix $C$ and adjacency matrix $W$, memoizes intermediate decompositions, and orchestrates the selection strategies:
 
 ```python
 from eigenmind import SimilarityGraph
 
-# retrieved_points: objects with .id, .vector, .payload (e.g. Qdrant points)
-graph = SimilarityGraph(retrieved_points)
-tags = graph.selection_tags(top_k=10)  # {chunk_id: ["Singular", "Hinge", "Theta"]}
+# retrieved_points: list of objects exposing .id, .vector, and optional .payload
+graph = SimilarityGraph(retrieved_points, threshold=0.5, center=True)
+
+# 1. Topology summary
+print(graph.summary())
+# {'n': 250, 'edges': 1840, 'components': 8, 'isolates': 12, ...}
+
+# 2. Spectral Attention
+sa = graph.spectral_attention(positive_count=10, selection="vertices")
+# Selected extreme vertices across spectral embeddings
+
+# 3. Semantic Bridges
+sb = graph.semantic_bridges(mode="spanning_tree")
+# Bridges connecting separate thematic components
+
+# 4. Supported Diversity
+sd = graph.supported_diversity(budget=12, solver="milp")
+# Diverse supported subset with conflict avoidance
+
+# 5. Consolidated Selection Tags
+tags = graph.selection_tags(top_k=10)
+# {chunk_id: ['SpectralAttention', 'SemanticBridge', 'SupportedDiversity']}
 ```
 
-### Expected input data
+### Direct Module API
 
-`retrieved_points` is a plain list of objects — any class works (duck-typing,
-modeled after Qdrant's point objects), each exposing:
+All mathematical modules are directly importable and usable on standard NumPy matrices:
 
-| Attribute | Type | Constraint |
-|---|---|---|
-| `.id` | hashable (`int`, `str`, `UUID`, ...) | unique across the list — used as a dict key |
-| `.vector` | sequence of floats (`list` or `np.ndarray`) | **same length for every point**, and **unit-normalized (L2 norm ≈ 1)** |
-| `.payload` | `dict` | only read by `eigenvalue_analysis`, via `.get("text")`, `.get("chunk_number")`, `.get("filename")` |
+```python
+from eigenmind import (
+    normalize_embeddings,
+    cosine_matrix,
+    quantile_threshold,
+    threshold_graph,
+    graph_summary,
+    spectral_attention,
+    semantic_bridges,
+    supported_diversity,
+    mmr,
+    facility_location,
+    kdpp_greedy,
+    farthest_first,
+)
 
-The library computes cosine similarity as a plain dot product between
-vectors (`embedding_matrix @ embedding_matrix.T`) — it does **not** normalize
-your vectors for you. Passing unnormalized vectors raises a `ValueError`
-(from `build_similarity_matrix`, used internally by `SimilarityGraph` and
-`find_singular_chunks`); normalize each vector yourself first, e.g.
-`v / np.linalg.norm(v)`.
+# Upstream graph construction
+U = normalize_embeddings(V, center=True, remove_top=1)
+C = cosine_matrix(U)
+tau = quantile_threshold(C, q=0.99)
+W = threshold_graph(C, tau)
 
-A `types.SimpleNamespace(id=..., vector=..., payload={...})` is enough — no
-dependency on Qdrant is required, as shown in the test suite. Because the
-interface is duck-typed on these three attributes, results from any
-vector store (Pinecone, Weaviate, Milvus, pgvector, Chroma, ...) work as-is,
-either directly or after a thin adapter mapping their result objects to
-`.id` / `.vector` / `.payload`.
+# The Three Selection Mechanisms
+sa_res = spectral_attention(W, chunks=texts, selection=("vertices", "medoids"))
+sb_res = semantic_bridges(W, C, chunks=texts, mode="spanning_tree")
+sd_res = supported_diversity(W, utilities, budget=12, chunks=texts, solver="milp")
 
-`SimilarityGraph` memoizes the similarity matrix and exposes four ranking
-strategies over a set of embedded chunks:
+# Comparison Baselines
+selected_mmr = mmr(relevance, C, budget=10, lam=0.5)
+selected_fl  = facility_location(C, budget=10)
+selected_dpp = kdpp_greedy(C, budget=10)
+```
 
-- **Singular chunks** — points at the +/- poles of the normalized Laplacian's
-  first eigenvectors (`singular.py`).
-- **Hinge ranking** — "relevant but not obvious" chunks via an ℓ∞-connectivity
-  optimizer (`connectivity.py`).
-- **Theta diversity** — a diverse subset picked via a Lovász θ approximation on
-  the conflict graph (`theta.py`).
-- **Eigenvalue analysis** — spectrum plot + most expressive chunks per
-  eigenvector, for exploratory/debugging use. Requires the `viz` extra
-  (`pip install eigenmind[viz]`).
+---
 
+## Command-Line Usage
 
-## Configuration
-
-Every tunable is a plain keyword argument with a default from
-[`defaults.py`](src/eigenmind/defaults.py) — override it per call/instance,
-there is no global state to mutate.
-
-| Constant | Default | Meaning | Override via |
-|---|---|---|---|
-| `SIMILARITY_THRESHOLD` | `0.65` | Minimum cosine similarity kept as an edge weight; pairs below it are zeroed out of `W`. | `SimilarityGraph(points, threshold=...)`, `build_similarity_matrix(..., threshold=...)` |
-| `THETA_CONFLICT_THRESHOLD` | `= SIMILARITY_THRESHOLD` | Similarity level above which two chunks are considered "conflicting" (same info) for the θ diversity graph. | `SimilarityGraph.conflict_mask(threshold=...)`, `build_conflict_mask(..., threshold=...)` |
-| `THETA_RANK` | `24` | Rank of the low-rank factor `Y` (`X ≈ Y Yᵀ`) used by the diversity picker — caps how many effective directions the θ approximation keeps. | `SimilarityGraph.theta_factor(rank=...)`, `theta_subgradient_approximation(..., rank=...)` |
-| `THETA_MAX_ITERS` | `400` | Number of subgradient-descent iterations for the Lovász θ approximation. | `SimilarityGraph.theta_factor(max_iters=...)`, `theta_subgradient_approximation(..., max_iters=...)` |
-| `THETA_STEP0` | `0.25` | Initial subgradient step size, decayed as `step0 / sqrt(k)` over iterations. | `SimilarityGraph.theta_factor(step0=...)`, `theta_subgradient_approximation(..., step0=...)` |
-| `THETA_DIAG_SHIFT` | `1e-2` | Diagonal regularization added when the dual matrix isn't Cholesky-decomposable (numerical stabilizer). | `SimilarityGraph.theta_factor(diag_shift=...)`, `theta_subgradient_approximation(..., diag_shift=...)` |
-
-These defaults are the values the algorithms were originally tuned against;
-adjust them if your embeddings' similarity distribution differs
-significantly (e.g. a different embedding model or normalization scheme).
-
-## Tests
+Each module exposes a standalone CLI with `--self-test`, `--demo`, and file input:
 
 ```bash
-pip install -e ".[dev]"
-pytest
+# Run self-tests
+python -m eigenmind.spectral_attention --self-test
+python -m eigenmind.semantic_bridges --self-test
+python -m eigenmind.supported_diversity --self-test
+python -m eigenmind.graph_construction --self-test
+python -m eigenmind.selection_baselines --self-test
+
+# Run scale and stability benchmark
+python -m eigenmind.scale_check
+
+# Process adjacency matrices directly
+python -m eigenmind.spectral_attention W.npy --chunks chunks.json --output spectral.json
+python -m eigenmind.semantic_bridges W.npy C.npy --chunks chunks.json --output bridges.json
+python -m eigenmind.supported_diversity W.npy utilities.npy --budget 12 --chunks chunks.json --output diversity.json
 ```
+
+Or via installed CLI entry points:
+```bash
+eigenmind-spectral --self-test
+eigenmind-bridges --self-test
+eigenmind-diversity --self-test
+eigenmind-scale-check
+```
+
+---
+
+## Testing
+
+Run the full pytest suite:
+
+```bash
+pytest tests/ -v
+```
+
+---
+
+## Authors & License
+
+- Authors: François Oustry & Marion Schaeffer (Merlin Intelligence / ORSON)
+- License: MIT

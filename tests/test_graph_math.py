@@ -1,4 +1,12 @@
-"""Smoke tests on the graph math modules — pure numpy, no external services needed.
+"""Unit and regression tests for Eigenmind v1.8 modules.
+
+Tests:
+  - Graph construction (normalization, top-PC removal, cosine, quantiles, k-NN)
+  - Spectral Attention (SPA vertices, spectral medoids, tails)
+  - Semantic Bridges (spanning tree, top-m, component affinities)
+  - Supported Diversity (exact MILP solver via HiGHS, LP-greedy fallback)
+  - Selection baselines (MMR, Facility Location, k-DPP, Farthest-First)
+  - High-level SimilarityGraph API and backwards-compatibility shims
 
 Run with: pytest
 """
@@ -8,123 +16,251 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
-from eigenmind.connectivity import (
-    compute_linf_connectivity_optimizer,
-    rank_relevant_but_not_obvious_chunks,
+from eigenmind import (
+    SimilarityGraph,
+    adjacency_from_cosine,
+    build_gaussian_kernel,
+    build_similarity_matrix,
+    component_affinity,
+    component_spectrum,
+    cosine_matrix,
+    diverse_coverage,
+    facility_location,
+    farthest_first,
+    find_singular_chunks,
+    graph_summary,
+    kdpp_greedy,
+    knn_graph,
+    medoids,
+    mmr,
+    normalize_embeddings,
+    normalized_laplacian,
+    quantile_threshold,
+    semantic_bridges,
+    spa,
+    spectral_attention,
+    supported_diversity,
+    threshold_graph,
 )
-from eigenmind.similarity_graph import SimilarityGraph
-from eigenmind.singular import build_similarity_matrix, find_singular_chunks, normalized_laplacian
-from eigenmind.theta import (
-    build_conflict_mask,
-    theta_diversity_picker,
-    theta_subgradient_approximation,
-)
 
 
-def _toy_embeddings(seed: int = 0, n: int = 8, d: int = 16) -> np.ndarray:
+def _toy_embeddings(seed: int = 0, n: int = 16, d: int = 32) -> np.ndarray:
     rng = np.random.default_rng(seed)
     M = rng.standard_normal((n, d))
-    M = M / np.linalg.norm(M, axis=1, keepdims=True)
-    return M
+    return M / np.linalg.norm(M, axis=1, keepdims=True)
 
 
-def test_similarity_matrix_is_symmetric_with_zero_diagonal():
-    W = build_similarity_matrix(_toy_embeddings(), threshold=0.0)
-    assert W.shape == (8, 8)
-    assert np.allclose(np.diag(W), 0.0)
-    assert np.allclose(W, W.T)
+def _planted_two_clusters(seed: int = 1, n_per: int = 8, d: int = 16) -> np.ndarray:
+    """Create two well-separated clusters on the unit sphere."""
+    rng = np.random.default_rng(seed)
+    c1 = np.zeros(d); c1[0] = 1.0
+    c2 = np.zeros(d); c2[1] = 1.0
+    v1 = c1 + 0.2 * rng.standard_normal((n_per, d))
+    v2 = c2 + 0.2 * rng.standard_normal((n_per, d))
+    V = np.vstack([v1, v2])
+    return V / np.linalg.norm(V, axis=1, keepdims=True)
 
 
-def test_build_similarity_matrix_rejects_unnormalized_vectors():
-    M = _toy_embeddings() * 3.0  # norm 3, not 1
-    try:
-        build_similarity_matrix(M, threshold=0.0)
-        raise AssertionError("expected ValueError for unnormalized vectors")
-    except ValueError as e:
-        assert "unit-normalized" in str(e)
-
-
-def test_normalized_laplacian_is_symmetric():
-    W = build_similarity_matrix(_toy_embeddings(), threshold=0.0) + 0.1
-    np.fill_diagonal(W, 0)
-    L = normalized_laplacian(W)
-    assert np.allclose(L, L.T, atol=1e-10)
-
-
-def test_linf_optimizer_in_unit_interval_or_zero():
-    W = build_similarity_matrix(_toy_embeddings(seed=1), threshold=0.0) + 0.1
-    np.fill_diagonal(W, 0)
-    x = compute_linf_connectivity_optimizer(W)
-    assert x.shape == (8,)
-    assert np.max(np.abs(x)) <= 1.0 + 1e-9
-
-
-def test_rank_returns_one_entry_per_node():
-    W = build_similarity_matrix(_toy_embeddings(seed=2), threshold=0.0) + 0.1
-    np.fill_diagonal(W, 0)
-    x = compute_linf_connectivity_optimizer(W)
-    ranking, _, _, _, _ = rank_relevant_but_not_obvious_chunks(W, x)
-    assert len(ranking) == W.shape[0]
-    assert ranking[0][1] >= ranking[-1][1]  # sorted descending by hinge
-
-
-def test_theta_pipeline_runs_end_to_end():
-    W = build_similarity_matrix(_toy_embeddings(seed=3), threshold=0.0) + 0.1
-    np.fill_diagonal(W, 0)
-    H = build_conflict_mask(W, threshold=0.5)
-    assert np.all(np.diag(H) == 0)
-    assert np.array_equal(H, H.T)
-
-    _, _, Y, _, _, _ = theta_subgradient_approximation(H, max_iters=20)
-    selected, _ = theta_diversity_picker(Y, k=4)
-    assert len(set(selected)) == 4  # picker returns distinct indices
-
-
-def _toy_points(seed: int = 0, n: int = 8):
-    """Build mock points compatible with what Qdrant returns: id, vector, payload."""
+def _toy_points(seed: int = 0, n: int = 12):
+    """Mock points compatible with Qdrant retrieval format."""
     M = _toy_embeddings(seed=seed, n=n)
     return [
         SimpleNamespace(
             id=i,
             vector=M[i].tolist(),
-            payload={"filename": f"f{i}.pdf", "chunk_number": i, "text": f"chunk {i} text"},
+            payload={"filename": f"doc_{i}.pdf", "chunk_id": i},
         )
         for i in range(n)
     ]
 
 
-def test_similarity_graph_memoizes_x_star_and_theta_factor():
-    points = _toy_points(seed=4)
-    g = SimilarityGraph(points, threshold=0.0)
-    assert g.n == 8
-    # First call computes, second returns memoized array
-    x1 = g.linf_optimizer()
-    x2 = g.linf_optimizer()
-    assert x1 is x2  # same object reference proves memoization
+# ─── 1. Graph Construction ───────────────────────────────────────────────────
 
-    Y1 = g.theta_factor(max_iters=10)
-    Y2 = g.theta_factor(max_iters=10)
-    assert Y1 is Y2
+def test_normalize_embeddings_properties():
+    V = _toy_embeddings(seed=2, n=10, d=8)
+    U = normalize_embeddings(V, center=True, remove_top=1)
+    assert U.shape == (10, 8)
+    norms = np.linalg.norm(U, axis=1)
+    assert np.allclose(norms, 1.0)
 
 
-def test_singular_chunks_respects_graph_threshold_not_the_default():
-    # threshold=0.0 keeps every pairwise edge, unlike the library default (0.65).
-    # singular_chunks() must reuse SimilarityGraph.W rather than recomputing it
-    # from the module-level default threshold.
-    points = _toy_points(seed=6)
-    g = SimilarityGraph(points, threshold=0.0)
-    assert find_singular_chunks(g.points, W=g.W) == g.singular_chunks()
-    assert len(g.singular_chunks()) > 0
+def test_cosine_and_threshold_graph():
+    U = _toy_embeddings(seed=3, n=8, d=8)
+    C = cosine_matrix(U)
+    assert C.shape == (8, 8)
+    assert np.allclose(C, C.T)
+    assert np.allclose(np.diag(C), 1.0)
+
+    W = threshold_graph(C, tau=0.3)
+    assert np.allclose(np.diag(W), 0.0)
+    assert np.allclose(W, W.T)
+    assert np.all((W == 0.0) | (W > 0.3))
 
 
-def test_similarity_graph_selection_tags_aggregates_methods():
-    points = _toy_points(seed=5)
-    g = SimilarityGraph(points, threshold=0.0)
-    tags = g.selection_tags(top_k=4)
-    # Some chunks should have at least one tag
-    assert any(len(v) > 0 for v in tags.values())
-    # Tags must be a subset of the three known methods
-    allowed = {"Singular", "Hinge", "Theta"}
-    for vs in tags.values():
-        assert set(vs) <= allowed
+def test_quantile_and_knn_graph():
+    U = _toy_embeddings(seed=4, n=12, d=8)
+    C = cosine_matrix(U)
+    tau = quantile_threshold(C, q=0.8)
+    assert 0.0 <= tau < 1.0
+
+    W_knn = knn_graph(C, k=3, mutual=True)
+    assert W_knn.shape == (12, 12)
+    assert np.allclose(W_knn, W_knn.T)
+    assert np.allclose(np.diag(W_knn), 0.0)
+
+    summary = graph_summary(W_knn)
+    assert "components" in summary
+    assert "isolates" in summary
+    assert summary["n"] == 12
+
+
+# ─── 2. Spectral Attention ────────────────────────────────────────────────────
+
+def test_spectral_attention_vertices():
+    V = _planted_two_clusters()
+    C = cosine_matrix(V)
+    W = threshold_graph(C, tau=0.5)
+
+    res = spectral_attention(W, selection="vertices", positive_count=6)
+    assert "selected_chunks" in res
+    assert "config" in res
+    selected = res["selected_chunks"]
+    assert len(selected) > 0
+    all_kinds = [r["kind"] for c in selected for r in c.get("reasons", [])]
+    assert "spectral_vertex" in all_kinds or "representative" in all_kinds
+
+
+def test_spectral_attention_medoids_and_tails():
+    V = _planted_two_clusters()
+    C = cosine_matrix(V)
+    W = threshold_graph(C, tau=0.5)
+
+    # Medoids mode
+    res_m = spectral_attention(W, selection="medoids", positive_count=4)
+    assert len(res_m["selected_chunks"]) > 0
+
+    # Tails mode (v1.x ablation)
+    res_t = spectral_attention(W, selection="tails", positive_count=4)
+    assert len(res_t["selected_chunks"]) > 0
+
+
+# ─── 3. Semantic Bridges ──────────────────────────────────────────────────────
+
+def test_semantic_bridges_spanning_tree():
+    V = _planted_two_clusters()  # 2 distinct clusters
+    C = cosine_matrix(V)
+    W = threshold_graph(C, tau=0.7)  # strict tau creates >= 2 components
+
+    res = semantic_bridges(W, C, mode="spanning_tree")
+    assert "component_bridges" in res
+    assert "selected_chunks" in res
+    bridges = res["component_bridges"]
+    if res["n_components"] >= 2:
+        assert len(bridges) >= 1
+        b0 = bridges[0]
+        assert "component_a" in b0
+        assert "component_b" in b0
+        assert "maximum_cosine_similarity" in b0
+        assert b0["maximum_cosine_similarity"] > 0.0
+
+
+# ─── 4. Supported Diversity ───────────────────────────────────────────────────
+
+def test_supported_diversity_milp_solver():
+    V = _toy_embeddings(seed=5, n=12, d=8)
+    C = cosine_matrix(V)
+    W = threshold_graph(C, tau=0.2)
+    utilities = np.ones(12)
+
+    res = supported_diversity(W, utilities, budget=4, solver="milp")
+    assert "selected_indices" in res
+    assert "status" in res
+    assert len(res["selected_indices"]) == 4
+    assert len(set(res["selected_indices"])) == 4
+    assert res["selected_utility"] > 0.0
+
+
+def test_supported_diversity_lp_greedy_fallback():
+    V = _toy_embeddings(seed=6, n=10, d=8)
+    C = cosine_matrix(V)
+    W = threshold_graph(C, tau=0.2)
+    utilities = np.linspace(1.0, 2.0, 10)
+
+    res = supported_diversity(W, utilities, budget=3, solver="lp_greedy")
+    assert len(res["selected_indices"]) == 3
+    assert len(set(res["selected_indices"])) == 3
+
+
+# ─── 5. Selection Baselines ───────────────────────────────────────────────────
+
+def test_selection_baselines():
+    V = _toy_embeddings(seed=7, n=10, d=8)
+    C = cosine_matrix(V)
+    relevance = np.linspace(0.1, 1.0, 10)
+
+    # MMR
+    s_mmr = mmr(relevance, C, budget=4, lam=0.5)
+    assert len(s_mmr) == 4
+    assert len(set(s_mmr)) == 4
+
+    # Facility Location
+    s_fl = facility_location(C, budget=4)
+    assert len(s_fl) == 4
+
+    # k-DPP Greedy MAP
+    s_dpp = kdpp_greedy(C, budget=4)
+    assert len(s_dpp) <= 4
+
+    # Farthest First
+    s_ff = farthest_first(C, budget=4)
+    assert len(s_ff) == 4
+
+
+# ─── 6. High-Level SimilarityGraph API ────────────────────────────────────────
+
+def test_similarity_graph_v1_8_integration():
+    points = _toy_points(seed=8, n=12)
+    sg = SimilarityGraph(points, threshold=0.3)
+    assert sg.n == 12
+
+    # Graph summary
+    summary = sg.summary()
+    assert summary["n"] == 12
+
+    # Spectral Attention
+    sa = sg.spectral_attention(positive_count=4)
+    assert "selected_chunks" in sa
+
+    # Semantic Bridges
+    sb = sg.semantic_bridges()
+    assert "component_bridges" in sb
+
+    # Supported Diversity
+    sd = sg.supported_diversity(budget=4)
+    assert 0 < len(sd["selected_indices"]) <= 4
+
+    # Tag aggregation
+    tags = sg.selection_tags(top_k=4, include_coverage=True)
+    assert isinstance(tags, dict)
+    valid_tags = {"SpectralAttention", "SemanticBridge", "SupportedDiversity", "DiverseCoverage"}
+    for t_list in tags.values():
+        assert set(t_list).issubset(valid_tags)
+
+
+# ─── 7. Backward Compatibility Shims ──────────────────────────────────────────
+
+def test_backward_compatibility_shims():
+    V = _toy_embeddings(seed=9, n=8, d=8)
+    W = build_similarity_matrix(V, threshold=0.2)
+    assert W.shape == (8, 8)
+    assert np.allclose(np.diag(W), 0.0)
+
+    L = normalized_laplacian(W)
+    assert L.shape == (8, 8)
+    assert np.allclose(L, L.T, atol=1e-10)
+
+    points = _toy_points(seed=9, n=8)
+    sing = find_singular_chunks(points, W=W)
+    assert isinstance(sing, list)
