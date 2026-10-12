@@ -145,5 +145,5 @@ pytest tests/ -v
 
 ## Authors & License
 
-- Authors: François Oustry & Marion Schaeffer (Merlin Intelligence / ORSON)
+- Authors: François Oustry & Marion Schaeffer (Merlin Intelligence)
 - License: MIT

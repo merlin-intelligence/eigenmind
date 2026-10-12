@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
+    { name = "François Oustry", email = "francois.oustry@merlin-intelligence.eu" },
     { name = "Marion Schaeffer", email = "marion.schaeffer@merlin-intelligence.eu" },
 ]
 keywords = [
