@@ -29,7 +29,9 @@ def _nonnegative(value: float, name: str) -> float:
     return val
 
 
-def _vector(value: np.ndarray | list[float] | None, n: int, name: str, default: float = 0.0) -> np.ndarray:
+def _vector(
+    value: np.ndarray | list[float] | None, n: int, name: str, default: float = 0.0
+) -> np.ndarray:
     x = np.full(n, default, dtype=float) if value is None else np.asarray(value, dtype=float)
     if x.shape != (n,) or not np.isfinite(x).all() or (x < 0.0).any():
         raise ValueError(f"{name} must be a finite nonnegative vector of length {n}")
@@ -123,7 +125,12 @@ def diverse_coverage(
             Provable analytical upper bound on the optimal value F(S*).
     """
     K_mat = np.asarray(K, dtype=float)
-    if K_mat.ndim != 2 or min(K_mat.shape) == 0 or not np.isfinite(K_mat).all() or (K_mat < 0.0).any():
+    if (
+        K_mat.ndim != 2
+        or min(K_mat.shape) == 0
+        or not np.isfinite(K_mat).all()
+        or (K_mat < 0.0).any()
+    ):
         raise ValueError("K must be a finite nonnegative nonempty 2D matrix")
 
     m, n = K_mat.shape

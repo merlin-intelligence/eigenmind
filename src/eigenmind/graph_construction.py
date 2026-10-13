@@ -15,6 +15,7 @@ provides the preprocessing and graph constructions compared in the report:
 
 Requires NumPy and SciPy. Run: python graph_construction.py --self-test
 """
+
 from __future__ import annotations
 
 import argparse
@@ -48,8 +49,8 @@ def normalize_embeddings(V, *, center=False, remove_top=0):
 def cosine_matrix(U):
     """Gram matrix of unit rows, symmetrized with an exact unit diagonal."""
     C = U @ U.T
-    C = np.clip((C + C.T) / 2, -1., 1.)
-    np.fill_diagonal(C, 1.)
+    C = np.clip((C + C.T) / 2, -1.0, 1.0)
+    np.fill_diagonal(C, 1.0)
     return C
 
 
@@ -58,8 +59,8 @@ def threshold_graph(C, tau):
     C = np.asarray(C, dtype=float)
     if not 0 <= tau < 1:
         raise ValueError("tau must lie in [0, 1)")
-    W = np.where(C > tau, C, 0.)
-    np.fill_diagonal(W, 0.)
+    W = np.where(C > tau, C, 0.0)
+    np.fill_diagonal(W, 0.0)
     return W
 
 
@@ -68,10 +69,10 @@ def quantile_threshold(C, q):
     if not 0 < q < 1:
         raise ValueError("q must lie in (0, 1)")
     vals = np.asarray(C)[np.triu_indices(len(C), 1)]
-    return float(np.clip(np.quantile(vals, q), 0., 1 - 1e-12))
+    return float(np.clip(np.quantile(vals, q), 0.0, 1 - 1e-12))
 
 
-def knn_graph(C, k, *, mutual=True, min_similarity=0.):
+def knn_graph(C, k, *, mutual=True, min_similarity=0.0):
     """k-NN graph on cosines; weights are the cosines (> min_similarity).
 
     Neighbours exclude the vertex itself; ties at the k-th neighbour are broken
@@ -88,8 +89,8 @@ def knn_graph(C, k, *, mutual=True, min_similarity=0.):
     M = np.zeros((n, n), bool)
     M[np.repeat(np.arange(n), k), nn.ravel()] = True
     M = (M & M.T) if mutual else (M | M.T)
-    W = np.where(M & (C > min_similarity), C, 0.)
-    np.fill_diagonal(W, 0.)
+    W = np.where(M & (C > min_similarity), C, 0.0)
+    np.fill_diagonal(W, 0.0)
     return W
 
 
@@ -100,25 +101,31 @@ def graph_summary(W):
     count, labels = connected_components(sparse.csr_matrix(W), directed=False)
     sizes = np.bincount(labels)
     edges = int(np.count_nonzero(np.triu(W, 1)))
-    return {"n": n, "edges": edges, "density": edges / max(1, n * (n - 1) / 2),
-            "components": int(count), "isolates": int(np.sum(sizes == 1)),
-            "largest_component": int(sizes.max()),
-            "component_size_quantiles": np.quantile(sizes, [.5, .9, 1.]).tolist()}
+    return {
+        "n": n,
+        "edges": edges,
+        "density": edges / max(1, n * (n - 1) / 2),
+        "components": int(count),
+        "isolates": int(np.sum(sizes == 1)),
+        "largest_component": int(sizes.max()),
+        "component_size_quantiles": np.quantile(sizes, [0.5, 0.9, 1.0]).tolist(),
+    }
 
 
 class Tests(unittest.TestCase):
     def test_centering_spreads_cosines(self):
         rng = np.random.default_rng(0)
-        V = rng.normal(size=(200, 16)) + 4.
+        V = rng.normal(size=(200, 16)) + 4.0
         raw = cosine_matrix(normalize_embeddings(V))
         cen = cosine_matrix(normalize_embeddings(V, center=True))
         off = np.triu_indices(200, 1)
-        self.assertGreater(raw[off].mean(), .8)
-        self.assertLess(abs(cen[off].mean()), .05)
+        self.assertGreater(raw[off].mean(), 0.8)
+        self.assertLess(abs(cen[off].mean()), 0.05)
 
     def test_remove_top(self):
         rng = np.random.default_rng(1)
-        V = rng.normal(size=(50, 8)); V[:, 0] *= 20
+        V = rng.normal(size=(50, 8))
+        V[:, 0] *= 20
         U = normalize_embeddings(V, remove_top=1)
         self.assertTrue(np.allclose(np.linalg.norm(U, axis=1), 1))
 
@@ -132,17 +139,21 @@ class Tests(unittest.TestCase):
         self.assertTrue(np.allclose(Wm, Wm.T))
 
     def test_threshold_and_summary(self):
-        C = np.array([[1., .9, .1], [.9, 1., .2], [.1, .2, 1.]])
-        s = graph_summary(threshold_graph(C, .5))
+        C = np.array([[1.0, 0.9, 0.1], [0.9, 1.0, 0.2], [0.1, 0.2, 1.0]])
+        s = graph_summary(threshold_graph(C, 0.5))
         self.assertEqual((s["components"], s["isolates"], s["edges"]), (2, 1, 1))
-        self.assertAlmostEqual(quantile_threshold(C, .5), .2)
+        self.assertAlmostEqual(quantile_threshold(C, 0.5), 0.2)
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--self-test", action="store_true")
     a = p.parse_args()
     if a.self_test:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(Tests)
-        raise SystemExit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1)
+        raise SystemExit(
+            0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+        )
     p.print_help()

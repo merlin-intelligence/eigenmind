@@ -1,14 +1,15 @@
-# Package validation
+# Validation — eigenmind 1.8.0
 
-Validated on 11 October 2026.
+Validated on 13 October 2026, on Linux:
 
-- Python 3.13.16, NumPy 2.5.3, SciPy 1.18.1 (Linux).
-- All 37 built-in tests passed: Spectral Attention (12), Semantic Bridges (6), Supported Diversity (10), Graph construction (4), Selection baselines (5).
-- The three report examples are reproduced by regression tests (eigenvalue 0.189986 and selection {A,C,D,F}; bridge C–D at 0.707107; Supported Diversity {A,C} proven optimal).
-- All three CLI demonstrations completed and produced parseable JSON.
-- `scale_check.py --v17 <v1.7 folder>` reproduces the figures of report Section 10.
-- The report compiles with pdfLaTeX (three passes) without overfull boxes or undefined references; the PDF has 15 pages and identifies itself as version 1.8.
+| Python | NumPy | SciPy | `pytest` | `ruff check` / `ruff format --check` |
+|---|---|---|---|---|
+| 3.10.20 | 2.2.6 | 1.15.3 | 67 passed | clean |
+| 3.13.16 | 2.5.3 | 1.18.1 | 67 passed | clean |
 
-`requirements.txt` sets SciPy ≥ 1.9 (needed for `scipy.optimize.milp`) and leaves other versions unpinned; only the environment above was tested.
+- The 67 tests comprise the package tests (`tests/`) and the 37 self-tests embedded in the modules: Spectral Attention (12), Semantic Bridges (6), Supported Diversity (10), graph construction (4), selection baselines (5).
+- The self-tests reproduce the three worked examples of the Eigenmind 1.8 report (eigenvalue 0.189986 and selection {A, C, D, F}; bridge C–D at cosine 0.707107; Supported Diversity {A, C} proven optimal) and check the MILP against exhaustive search on 45 seeded graphs.
+- The deprecated pre-1.8 API is covered by its original tests, run unchanged apart from the renamed `legacy_selection_tags` and a filter for the expected warnings, plus a test that every deprecated name warns.
+- `python -m build` produces the sdist and wheel without warnings; `twine check` passes.
 
 These checks establish implementation and packaging consistency, not semantic usefulness.

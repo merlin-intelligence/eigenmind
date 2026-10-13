@@ -22,6 +22,7 @@ Run: python spectral_attention.py --demo
 Run: python spectral_attention.py W.npy --chunks chunks.json --output result.json
 W.npy stores an adjacency matrix, not a cosine Gram matrix.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,8 +55,8 @@ def adjacency_from_cosine(C, tau=0.5):
     if np.max(np.abs(C), initial=0) > 1 + 1e-10:
         raise ValueError("Cosine entries must lie in [-1, 1]")
     C = (C + C.T) / 2
-    W = np.where(C > tau, C, 0.)
-    np.fill_diagonal(W, 0.)
+    W = np.where(C > tau, C, 0.0)
+    np.fill_diagonal(W, 0.0)
     return W
 
 
@@ -69,14 +70,14 @@ def _validate(W):
         raise ValueError("W must be finite and nonnegative")
     if np.any(np.diag(W) != 0):
         raise ValueError("W must have zero diagonal; remove self-loops explicitly")
-    scale = np.max(W, initial=0.)
+    scale = np.max(W, initial=0.0)
     if scale and not np.allclose(W / scale, W.T / scale, atol=1e-12, rtol=1e-10):
         raise ValueError("Directed W is unsupported: choose symmetrization explicitly")
-    return .5 * W + .5 * W.T
+    return 0.5 * W + 0.5 * W.T
 
 
 # ---------------------------------------------------------------- spectra
-def component_spectrum(A, laplacian="normalized", degree_regularization=0.):
+def component_spectrum(A, laplacian="normalized", degree_regularization=0.0):
     """Eigen-decomposition of one connected component.
 
     Returns (lam, U, deg) with lam ascending, U Euclidean-orthonormal, and deg
@@ -105,7 +106,9 @@ def _groups(values, atol, rtol):
     """Sorted values; compare with the group anchor to avoid tolerance chaining."""
     groups = []
     for i, val in enumerate(values):
-        if not groups or abs(val - values[groups[-1][0]]) > atol + rtol * max(abs(val), abs(values[groups[-1][0]])):
+        if not groups or abs(val - values[groups[-1][0]]) > atol + rtol * max(
+            abs(val), abs(values[groups[-1][0]])
+        ):
             groups.append([i])
         else:
             groups[-1].append(i)
@@ -125,23 +128,31 @@ def _retain(values, count, atol, rtol, min_gap, max_extension):
     for g in groups:
         if n_kept >= count:
             break
-        kept.append(g); n_kept += len(g)
+        kept.append(g)
+        n_kept += len(g)
     base = n_kept
+
     def rel_gap(k):
         if k >= len(groups):
             return None
         last, nxt = values[groups[k - 1][-1]], values[groups[k][0]]
-        return float((nxt - last) / nxt) if nxt > 0 else 0.
+        return float((nxt - last) / nxt) if nxt > 0 else 0.0
+
     while kept and min_gap > 0 and len(kept) < len(groups):
         gap = rel_gap(len(kept))
         nxt = len(groups[len(kept)])
         if gap is None or gap >= min_gap or n_kept + nxt - base > max_extension:
             break
-        kept.append(groups[len(kept)]); n_kept += nxt
+        kept.append(groups[len(kept)])
+        n_kept += nxt
     gap = rel_gap(len(kept)) if kept else None
-    return kept, {"requested": int(count), "retained": int(n_kept),
-                  "gap_extension": int(n_kept - base), "relative_gap_after_cutoff": gap,
-                  "gap_below_threshold": bool(gap is not None and min_gap > 0 and gap < min_gap)}
+    return kept, {
+        "requested": int(count),
+        "retained": int(n_kept),
+        "gap_extension": int(n_kept - base),
+        "relative_gap_after_cutoff": gap,
+        "gap_below_threshold": bool(gap is not None and min_gap > 0 and gap < min_gap),
+    }
 
 
 # ---------------------------------------------------------------- selectors
@@ -163,12 +174,12 @@ def spa(Y, max_points=None, *, candidates=None, rtol=1e-8, tie_rtol=1e-9):
     picks, first = [], None
     for _ in range(max_points):
         norms = np.einsum("ij,ij->i", R, R)
-        norms[~cand] = -1.
+        norms[~cand] = -1.0
         best = norms.max()
         if best <= 0:
             break
         first = best if first is None else first
-        if best <= rtol ** 2 * first:
+        if best <= rtol**2 * first:
             break
         tied = np.flatnonzero(norms >= best * (1 - tie_rtol))
         i = int(tied[0])
@@ -184,7 +195,7 @@ def medoids(Z, k, *, seed=0, restarts=10):
     return one medoid (member nearest its centroid) per nonempty cluster."""
     n = len(Z)
     if n <= k:
-        return [(i, 0., 1) for i in range(n)]
+        return [(i, 0.0, 1) for i in range(n)]
     norms = np.linalg.norm(Z, axis=1, keepdims=True)
     Z = Z / np.maximum(norms, 1e-300)
     best = None
@@ -220,23 +231,44 @@ def _extreme(scores, fraction, high, ties, atol, rtol, cap):
         chosen = full
     else:
         chosen = np.sort(order[:target])
-    return chosen, {"target_count": int(target), "selected_count": int(len(chosen)),
-                    "cutoff": cut, "cutoff_tie_count": int(close.sum()),
-                    "ties_split": bool(len(full) > len(chosen)),
-                    "cutoff_tied_local": np.flatnonzero(close).tolist() if len(full) > len(chosen) else []}
+    return chosen, {
+        "target_count": int(target),
+        "selected_count": int(len(chosen)),
+        "cutoff": cut,
+        "cutoff_tie_count": int(close.sum()),
+        "ties_split": bool(len(full) > len(chosen)),
+        "cutoff_tied_local": np.flatnonzero(close).tolist() if len(full) > len(chosen) else [],
+    }
 
 
 # ---------------------------------------------------------------- main
-def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global",
-                       selection=("vertices",), laplacian="normalized",
-                       coordinates="degree_adjusted", degree_regularization=0.,
-                       min_relative_gap=0.05, max_gap_extension=None,
-                       representative_fraction=.05, max_per_selection=5,
-                       vertex_min_degree_quantile=0., medoid_seed=0, medoid_restarts=10,
-                       tail_fraction=.05, eigenspace_fraction=None,
-                       select_isolates=False, eigen_atol=1e-10, eigen_rtol=1e-8,
-                       ties="include", score_atol=1e-12, score_rtol=1e-8,
-                       small_eigen_warning=1e-8):
+def spectral_attention(
+    W,
+    chunks=None,
+    *,
+    positive_count=10,
+    allocation="global",
+    selection=("vertices",),
+    laplacian="normalized",
+    coordinates="degree_adjusted",
+    degree_regularization=0.0,
+    min_relative_gap=0.05,
+    max_gap_extension=None,
+    representative_fraction=0.05,
+    max_per_selection=5,
+    vertex_min_degree_quantile=0.0,
+    medoid_seed=0,
+    medoid_restarts=10,
+    tail_fraction=0.05,
+    eigenspace_fraction=None,
+    select_isolates=False,
+    eigen_atol=1e-10,
+    eigen_rtol=1e-8,
+    ties="include",
+    score_atol=1e-12,
+    score_rtol=1e-8,
+    small_eigen_warning=1e-8,
+):
     """Return JSON-serializable selections with all selection reasons.
 
     Retained directions: the first `positive_count` positive eigen-directions,
@@ -260,16 +292,23 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
         raise ValueError("positive_count must be a nonnegative integer")
     if allocation not in ("global", "per_component"):
         raise ValueError("allocation must be 'global' or 'per_component'")
-    if not 0 < tail_fraction <= .5 or not 0 < representative_fraction <= 1:
+    if not 0 < tail_fraction <= 0.5 or not 0 < representative_fraction <= 1:
         raise ValueError("Invalid selection fractions")
-    eigenspace_fraction = min(1., 2 * tail_fraction) if eigenspace_fraction is None else eigenspace_fraction
+    eigenspace_fraction = (
+        min(1.0, 2 * tail_fraction) if eigenspace_fraction is None else eigenspace_fraction
+    )
     if not 0 < eigenspace_fraction <= 1:
         raise ValueError("eigenspace_fraction must be in (0,1]")
-    if laplacian not in ("normalized", "unnormalized") or coordinates not in ("degree_adjusted", "raw"):
+    if laplacian not in ("normalized", "unnormalized") or coordinates not in (
+        "degree_adjusted",
+        "raw",
+    ):
         raise ValueError("Invalid Laplacian or coordinate choice")
     if ties not in ("include", "stable") or min(eigen_atol, eigen_rtol, score_atol, score_rtol) < 0:
         raise ValueError("Invalid tie policy or tolerances")
-    if max_per_selection is not None and (not isinstance(max_per_selection, (int, np.integer)) or max_per_selection < 1):
+    if max_per_selection is not None and (
+        not isinstance(max_per_selection, (int, np.integer)) or max_per_selection < 1
+    ):
         raise ValueError("max_per_selection must be a positive integer or None")
     if not 0 <= degree_regularization or not math.isfinite(degree_regularization):
         raise ValueError("degree_regularization must be finite and nonnegative")
@@ -285,40 +324,74 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
     if not np.isfinite(d).all():
         raise ValueError("Degree overflow; rescale W")
     count, labels = connected_components(sparse.csr_matrix(W), directed=False)
-    result = {"module": "Spectral Attention", "version": VERSION,
-              "config": {"positive_count": int(positive_count), "allocation": allocation,
-                         "selection": list(sel), "laplacian": laplacian, "coordinates": coords,
-                         "degree_regularization": degree_regularization,
-                         "min_relative_gap": min_relative_gap, "max_gap_extension": int(max_gap_extension),
-                         "representative_fraction": representative_fraction,
-                         "max_per_selection": max_per_selection,
-                         "vertex_min_degree_quantile": vertex_min_degree_quantile,
-                         "medoid_seed": medoid_seed, "medoid_restarts": medoid_restarts,
-                         "tail_fraction": tail_fraction, "eigenspace_fraction": eigenspace_fraction,
-                         "select_isolates": select_isolates, "ties": ties,
-                         "eigen_atol": eigen_atol, "eigen_rtol": eigen_rtol,
-                         "score_atol": score_atol, "score_rtol": score_rtol},
-              "n_components": int(count), "kernel_dimension": int(count),
-              "components": [], "isolated_chunks": [], "cutoff": {},
-              "spectral_groups": [], "selections": [], "warnings": []}
+    result = {
+        "module": "Spectral Attention",
+        "version": VERSION,
+        "config": {
+            "positive_count": int(positive_count),
+            "allocation": allocation,
+            "selection": list(sel),
+            "laplacian": laplacian,
+            "coordinates": coords,
+            "degree_regularization": degree_regularization,
+            "min_relative_gap": min_relative_gap,
+            "max_gap_extension": int(max_gap_extension),
+            "representative_fraction": representative_fraction,
+            "max_per_selection": max_per_selection,
+            "vertex_min_degree_quantile": vertex_min_degree_quantile,
+            "medoid_seed": medoid_seed,
+            "medoid_restarts": medoid_restarts,
+            "tail_fraction": tail_fraction,
+            "eigenspace_fraction": eigenspace_fraction,
+            "select_isolates": select_isolates,
+            "ties": ties,
+            "eigen_atol": eigen_atol,
+            "eigen_rtol": eigen_rtol,
+            "score_atol": score_atol,
+            "score_rtol": score_rtol,
+        },
+        "n_components": int(count),
+        "kernel_dimension": int(count),
+        "components": [],
+        "isolated_chunks": [],
+        "cutoff": {},
+        "spectral_groups": [],
+        "selections": [],
+        "warnings": [],
+    }
     reasons = [[] for _ in range(n)]
 
     def warn(msg):
         result["warnings"].append(msg)
-        warnings.warn(msg, RuntimeWarning)
+        warnings.warn(msg, RuntimeWarning, stacklevel=3)
 
     def add(kind, component, indices, scores, group=None, extra=None):
         sid = len(result["selections"])
-        rec = {"id": sid, "kind": kind, "component": int(component), "spectral_group": group,
-               "indices": [int(i) for i in indices]}
+        rec = {
+            "id": sid,
+            "kind": kind,
+            "component": int(component),
+            "spectral_group": group,
+            "indices": [int(i) for i in indices],
+        }
         rec.update(extra or {})
         result["selections"].append(rec)
-        for rank, (i, s) in enumerate(zip(indices, scores)):
-            reasons[int(i)].append({"selection_id": sid, "kind": kind, "component": int(component),
-                                    "spectral_group": group, "rank": rank, "score": float(s)})
+        for rank, (i, s) in enumerate(zip(indices, scores, strict=True)):
+            reasons[int(i)].append(
+                {
+                    "selection_id": sid,
+                    "kind": kind,
+                    "component": int(component),
+                    "spectral_group": group,
+                    "rank": rank,
+                    "score": float(s),
+                }
+            )
 
     def extreme(idx, scores, fraction, high, kind, component, group=None):
-        chosen, diag = _extreme(scores, fraction, high, ties, score_atol, score_rtol, max_per_selection)
+        chosen, diag = _extreme(
+            scores, fraction, high, ties, score_atol, score_rtol, max_per_selection
+        )
         diag["cutoff_tied_indices"] = idx[diag.pop("cutoff_tied_local")].tolist()
         add(kind, component, idx[chosen], scores[chosen], group, diag)
 
@@ -331,31 +404,50 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
         if len(idx) == 1:
             result["isolated_chunks"].append(int(idx[0]))
             if select_isolates:
-                add("isolated_chunk", c, idx, [0.])
+                add("isolated_chunk", c, idx, [0.0])
             continue
-        extreme(idx, d[idx] / d[idx].max(), representative_fraction, True, "component_representative", c)
+        extreme(
+            idx, d[idx] / d[idx].max(), representative_fraction, True, "component_representative", c
+        )
         lam, U, deg = component_spectrum(W[np.ix_(idx, idx)], laplacian, degree_regularization)
-        scale = max(1., float(np.max(np.abs(lam))))
+        scale = max(1.0, float(np.max(np.abs(lam))))
         if np.any(lam[1:] <= small_eigen_warning * scale):
-            warn(f"Component {c}: very small positive eigenvalues; the component is nearly "
-                 "disconnected and its leading eigenvectors may be ill-conditioned.")
+            warn(
+                f"Component {c}: very small positive eigenvalues; the component is nearly "
+                "disconnected and its leading eigenvectors may be ill-conditioned."
+            )
         comp[c] = {"idx": idx, "lam": lam, "U": U, "deg": deg, "trivial_eigenvalue": float(lam[0])}
         for j in range(1, len(idx)):
-            directions.append((max(0., float(lam[j])), c, j))
+            directions.append((max(0.0, float(lam[j])), c, j))
 
     # --- retained directions (global or per component)
     retained = {c: [] for c in comp}
+
     def retain(dirs, key):
         dirs = sorted(dirs)
         vals = [x[0] for x in dirs]
-        groups, diag = _retain(vals, positive_count, eigen_atol, eigen_rtol,
-                               min_relative_gap, max_gap_extension) if positive_count else ([], {
-                               "requested": 0, "retained": 0, "gap_extension": 0,
-                               "relative_gap_after_cutoff": None, "gap_below_threshold": False})
+        groups, diag = (
+            _retain(
+                vals, positive_count, eigen_atol, eigen_rtol, min_relative_gap, max_gap_extension
+            )
+            if positive_count
+            else (
+                [],
+                {
+                    "requested": 0,
+                    "retained": 0,
+                    "gap_extension": 0,
+                    "relative_gap_after_cutoff": None,
+                    "gap_below_threshold": False,
+                },
+            )
+        )
         result["cutoff"][key] = diag
         if diag["gap_below_threshold"]:
-            warn(f"Cutoff {key}: relative eigengap {diag['relative_gap_after_cutoff']:.3g} below "
-                 f"{min_relative_gap}; the retained subspace may be unstable.")
+            warn(
+                f"Cutoff {key}: relative eigengap {diag['relative_gap_after_cutoff']:.3g} below "
+                f"{min_relative_gap}; the retained subspace may be unstable."
+            )
         for g in groups:
             items = [dirs[i] for i in g]
             gid = len(result["spectral_groups"])
@@ -363,9 +455,16 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
             for _, cc, j in items:
                 local.setdefault(cc, []).append(j)
                 retained[cc].append((j, gid))
-            result["spectral_groups"].append({"id": gid, "dimension": len(items),
-                "eigenvalue_min": items[0][0], "eigenvalue_max": items[-1][0],
-                "local_dimensions": {str(k): len(v) for k, v in local.items()}})
+            result["spectral_groups"].append(
+                {
+                    "id": gid,
+                    "dimension": len(items),
+                    "eigenvalue_min": items[0][0],
+                    "eigenvalue_max": items[-1][0],
+                    "local_dimensions": {str(k): len(v) for k, v in local.items()},
+                }
+            )
+
     if allocation == "global":
         retain(directions, "global")
     else:
@@ -385,8 +484,9 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
         if not js:
             continue
         nxt = len(js) + 1
-        entry["local_relative_gap"] = (float((lam[nxt] - lam[js[-1]]) / lam[nxt])
-                                       if nxt < len(lam) and lam[nxt] > 0 else None)
+        entry["local_relative_gap"] = (
+            float((lam[nxt] - lam[js[-1]]) / lam[nxt]) if nxt < len(lam) and lam[nxt] > 0 else None
+        )
         cols = [0] + js
         Y = U[:, cols] / np.sqrt(deg)[:, None] if coords == "degree_adjusted" else U[:, cols].copy()
         Y /= np.linalg.norm(Y)  # one common scalar: rankings and invariance unchanged
@@ -395,20 +495,42 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
             if vertex_min_degree_quantile > 0:
                 cand = d[idx] >= np.quantile(d[idx], vertex_min_degree_quantile)
             picks = spa(Y, candidates=cand)
-            add("spectral_vertex", c, idx[[p[0] for p in picks]], [p[1] for p in picks], None,
-                {"embedding_dimension": len(cols), "tie_counts": [p[2] for p in picks],
-                 "score_meaning": "SPA residual norm relative to the first vertex"})
+            add(
+                "spectral_vertex",
+                c,
+                idx[[p[0] for p in picks]],
+                [p[1] for p in picks],
+                None,
+                {
+                    "embedding_dimension": len(cols),
+                    "tie_counts": [p[2] for p in picks],
+                    "score_meaning": "SPA residual norm relative to the first vertex",
+                },
+            )
         if "medoids" in sel:
             meds = medoids(U[:, cols], len(cols), seed=medoid_seed, restarts=medoid_restarts)
-            add("spectral_medoid", c, idx[[m[0] for m in meds]], [m[1] for m in meds], None,
-                {"n_clusters": len(cols), "cluster_sizes": [m[2] for m in meds],
-                 "score_meaning": "squared distance to centroid (row-normalized embedding)"})
+            add(
+                "spectral_medoid",
+                c,
+                idx[[m[0] for m in meds]],
+                [m[1] for m in meds],
+                None,
+                {
+                    "n_clusters": len(cols),
+                    "cluster_sizes": [m[2] for m in meds],
+                    "score_meaning": "squared distance to centroid (row-normalized embedding)",
+                },
+            )
         if "tails" in sel:  # v1.x rule, kept for ablation
             by_group = {}
             for j, gid in retained[c]:
                 by_group.setdefault(gid, []).append(j)
             for gid, gjs in sorted(by_group.items()):
-                F = U[:, gjs] / np.sqrt(deg)[:, None] if coords == "degree_adjusted" else U[:, gjs].copy()
+                F = (
+                    U[:, gjs] / np.sqrt(deg)[:, None]
+                    if coords == "degree_adjusted"
+                    else U[:, gjs].copy()
+                )
                 F /= np.linalg.norm(F)
                 if len(gjs) == 1:
                     f = F[:, 0]
@@ -417,11 +539,26 @@ def spectral_attention(W, chunks=None, *, positive_count=10, allocation="global"
                     extreme(idx, f, tail_fraction, False, "lower_tail", c, gid)
                     extreme(idx, f, tail_fraction, True, "upper_tail", c, gid)
                 else:
-                    extreme(idx, np.linalg.norm(F, axis=1), eigenspace_fraction, True,
-                            "eigenspace_expression", c, gid)
-    result["selected_chunks"] = [{"index": i, "component": int(labels[i]),
-        "weighted_degree": float(d[i]), "text": chunks[i] if chunks is not None else None,
-        "reasons": why} for i, why in enumerate(reasons) if why]
+                    extreme(
+                        idx,
+                        np.linalg.norm(F, axis=1),
+                        eigenspace_fraction,
+                        True,
+                        "eigenspace_expression",
+                        c,
+                        gid,
+                    )
+    result["selected_chunks"] = [
+        {
+            "index": i,
+            "component": int(labels[i]),
+            "weighted_degree": float(d[i]),
+            "text": chunks[i] if chunks is not None else None,
+            "reasons": why,
+        }
+        for i, why in enumerate(reasons)
+        if why
+    ]
     return result
 
 
@@ -434,16 +571,16 @@ def _unit(deg):
     return np.column_stack((np.cos(a), np.sin(a)))
 
 
-def _planted(blocks=4, size=6, link=.2):
+def _planted(blocks=4, size=6, link=0.2):
     """Cliques of `size` joined in a ring by one weak edge each."""
     n = blocks * size
     W = np.zeros((n, n))
     for b in range(blocks):
         s = slice(b * size, (b + 1) * size)
-        W[s, s] = 1.
+        W[s, s] = 1.0
         i, j = b * size, ((b + 1) % blocks) * size + 1
         W[i, j] = W[j, i] = link
-    np.fill_diagonal(W, 0.)
+    np.fill_diagonal(W, 0.0)
     return W
 
 
@@ -453,7 +590,9 @@ def _kinds(r, kind):
 
 class SelectionTests(unittest.TestCase):
     def test_report_example_spectral(self):
-        W = adjacency_from_cosine(_unit([-35, -25, -15, 15, 25, 35]) @ _unit([-35, -25, -15, 15, 25, 35]).T, .85)
+        W = adjacency_from_cosine(
+            _unit([-35, -25, -15, 15, 25, 35]) @ _unit([-35, -25, -15, 15, 25, 35]).T, 0.85
+        )
         for mode in ("vertices", "tails"):
             r = spectral_attention(W, positive_count=1, selection=mode, min_relative_gap=0)
             self.assertAlmostEqual(r["positive_eigenvalues"][0], 0.189986, places=5)
@@ -491,79 +630,107 @@ class SelectionTests(unittest.TestCase):
 
     def test_rescaling_and_permutation(self):
         rng = np.random.default_rng(7)
-        A = rng.uniform(.1, 2, (12, 12)); W0 = (A + A.T) / 2; np.fill_diagonal(W0, 0)
-        B = _planted() * rng.uniform(.5, 2, (24, 24)); W1 = (B + B.T) / 2
+        A = rng.uniform(0.1, 2, (12, 12))
+        W0 = (A + A.T) / 2
+        np.fill_diagonal(W0, 0)
+        B = _planted() * rng.uniform(0.5, 2, (24, 24))
+        W1 = (B + B.T) / 2
         # medoids rely on k-means: test them where clusters exist (W1).
         for mode, W in (("vertices", W0), ("tails", W0), ("vertices", W1), ("medoids", W1)):
-            def selected(X):
-                return {c["index"] for c in spectral_attention(X, positive_count=3, selection=mode)["selected_chunks"]}
+
+            def selected(X, mode=mode):
+                return {
+                    c["index"]
+                    for c in spectral_attention(X, positive_count=3, selection=mode)[
+                        "selected_chunks"
+                    ]
+                }
+
             p = rng.permutation(len(W))
             self.assertEqual(selected(W), selected(100 * W), mode)
             self.assertEqual(selected(W), {int(p[i]) for i in selected(W[np.ix_(p, p)])}, mode)
 
     def test_gap_extension(self):
-        P = np.diag(np.ones(4), 1); P = P + P.T
-        P2 = P.copy(); P2[0, 1] = P2[1, 0] = 1.001
+        P = np.diag(np.ones(4), 1)
+        P = P + P.T
+        P2 = P.copy()
+        P2[0, 1] = P2[1, 0] = 1.001
         W = block_diag(P, P2)
-        self.assertEqual(spectral_attention(W, positive_count=1, min_relative_gap=0)["retained_positive_count"], 1)
-        r = spectral_attention(W, positive_count=1, min_relative_gap=.05)
+        self.assertEqual(
+            spectral_attention(W, positive_count=1, min_relative_gap=0)["retained_positive_count"],
+            1,
+        )
+        r = spectral_attention(W, positive_count=1, min_relative_gap=0.05)
         self.assertEqual(r["retained_positive_count"], 2)
         self.assertEqual(r["cutoff"]["global"]["gap_extension"], 1)
 
     def test_cap_and_reported_ties(self):
         W = np.ones((40, 40)) - np.eye(40)
-        r = spectral_attention(W, positive_count=0, representative_fraction=.5)
+        r = spectral_attention(W, positive_count=0, representative_fraction=0.5)
         rep = r["selections"][0]
         self.assertEqual(rep["selected_count"], 5)
         self.assertTrue(rep["ties_split"])
         self.assertEqual(len(rep["cutoff_tied_indices"]), 40)
-        r = spectral_attention(W, positive_count=0, representative_fraction=.5, max_per_selection=None)
+        r = spectral_attention(
+            W, positive_count=0, representative_fraction=0.5, max_per_selection=None
+        )
         self.assertEqual(r["selections"][0]["selected_count"], 40)
 
     def test_generalized_eigenvectors_and_regularization(self):
-        W = np.array([[0., 1, 0], [1, 0, 4], [0, 4, 0]])
+        W = np.array([[0.0, 1, 0], [1, 0, 4], [0, 4, 0]])
         lam, U, deg = component_spectrum(W)
         F = U / np.sqrt(deg)[:, None]
         L = np.diag(deg) - W / W.max()
         self.assertTrue(np.allclose(L @ F, deg[:, None] * F * lam))
-        self.assertAlmostEqual(lam[0], 0., places=12)
-        lam_r, _, _ = component_spectrum(W, degree_regularization=.5)
+        self.assertAlmostEqual(lam[0], 0.0, places=12)
+        lam_r, _, _ = component_spectrum(W, degree_regularization=0.5)
         self.assertGreater(lam_r[0], 1e-6)
-        r = spectral_attention(_planted(), positive_count=3, degree_regularization=.5)
+        r = spectral_attention(_planted(), positive_count=3, degree_regularization=0.5)
         self.assertEqual(len({i // 6 for i in _kinds(r, "spectral_vertex")}), 4)
 
     def test_per_component_allocation(self):
         W = block_diag(_planted(3, 5), np.ones((4, 4)) - np.eye(4))
         r = spectral_attention(W, positive_count=2, allocation="per_component", min_relative_gap=0)
-        self.assertEqual({c["id"]: c["retained_local_dimension"] for c in r["components"]}, {0: 2, 1: 3})
+        self.assertEqual(
+            {c["id"]: c["retained_local_dimension"] for c in r["components"]}, {0: 2, 1: 3}
+        )
 
     def test_validation(self):
         for W in ([[0, 1], [0, 0]], [[0, -1], [-1, 0]], [[1]]):
-            with self.assertRaises(ValueError): spectral_attention(W)
-        with self.assertRaises(ValueError): spectral_attention(np.zeros((2, 2)), selection="other")
+            with self.assertRaises(ValueError):
+                spectral_attention(W)
         with self.assertRaises(ValueError):
-            spectral_attention(np.zeros((2, 2)), laplacian="unnormalized", degree_regularization=1.)
+            spectral_attention(np.zeros((2, 2)), selection="other")
+        with self.assertRaises(ValueError):
+            spectral_attention(
+                np.zeros((2, 2)), laplacian="unnormalized", degree_regularization=1.0
+            )
 
     def test_zero_request_and_cosine(self):
-        C = np.array([[1., .8, .2], [.8, 1, .5], [.2, .5, 1]])
-        W = adjacency_from_cosine(C, .5)
+        C = np.array([[1.0, 0.8, 0.2], [0.8, 1, 0.5], [0.2, 0.5, 1]])
+        W = adjacency_from_cosine(C, 0.5)
         self.assertEqual(np.count_nonzero(W), 2)
         self.assertEqual(spectral_attention(W, positive_count=0)["retained_positive_count"], 0)
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("matrix", nargs="?")
     parser.add_argument("--chunks")
     parser.add_argument("--output")
-    parser.add_argument("--positive-count", type=int, default=None,
-                        help="default 10 (3 for --demo)")
+    parser.add_argument(
+        "--positive-count", type=int, default=None, help="default 10 (3 for --demo)"
+    )
     parser.add_argument("--allocation", choices=["global", "per_component"], default="global")
     parser.add_argument("--selection", nargs="+", choices=list(SELECTIONS), default=["vertices"])
     parser.add_argument("--laplacian", choices=["normalized", "unnormalized"], default="normalized")
-    parser.add_argument("--coordinates", choices=["degree_adjusted", "raw"], default="degree_adjusted")
-    parser.add_argument("--degree-regularization", type=float, default=0.)
-    parser.add_argument("--min-relative-gap", type=float, default=.05)
+    parser.add_argument(
+        "--coordinates", choices=["degree_adjusted", "raw"], default="degree_adjusted"
+    )
+    parser.add_argument("--degree-regularization", type=float, default=0.0)
+    parser.add_argument("--min-relative-gap", type=float, default=0.05)
     parser.add_argument("--max-per-selection", type=int, default=5)
     parser.add_argument("--select-isolates", action="store_true")
     parser.add_argument("--ties", choices=["include", "stable"], default="include")
@@ -572,7 +739,9 @@ def main():
     args = parser.parse_args()
     if args.self_test:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(SelectionTests)
-        raise SystemExit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1)
+        raise SystemExit(
+            0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+        )
     if args.demo:
         W = _planted()
         W = block_diag(W, [[0]])
@@ -583,12 +752,20 @@ def main():
     else:
         parser.error("Supply W.npy, --demo, or --self-test")
     count = args.positive_count if args.positive_count is not None else (3 if args.demo else 10)
-    result = spectral_attention(W, chunks, positive_count=count, allocation=args.allocation,
-                                selection=args.selection, laplacian=args.laplacian,
-                                coordinates=args.coordinates, degree_regularization=args.degree_regularization,
-                                min_relative_gap=args.min_relative_gap,
-                                max_per_selection=args.max_per_selection if args.max_per_selection > 0 else None,
-                                select_isolates=args.select_isolates, ties=args.ties)
+    result = spectral_attention(
+        W,
+        chunks,
+        positive_count=count,
+        allocation=args.allocation,
+        selection=args.selection,
+        laplacian=args.laplacian,
+        coordinates=args.coordinates,
+        degree_regularization=args.degree_regularization,
+        min_relative_gap=args.min_relative_gap,
+        max_per_selection=args.max_per_selection if args.max_per_selection > 0 else None,
+        select_isolates=args.select_isolates,
+        ties=args.ties,
+    )
     encoded = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)
     if args.output:
         Path(args.output).write_text(encoded + "\n", encoding="utf-8")

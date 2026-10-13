@@ -17,6 +17,7 @@ not part of the three mechanisms.
 
 Requires NumPy. Run: python selection_baselines.py --self-test
 """
+
 from __future__ import annotations
 
 import argparse
@@ -37,29 +38,32 @@ def _check(C, budget):
     return C, min(int(budget), len(C))
 
 
-def mmr(relevance, C, budget, lam=.5):
+def mmr(relevance, C, budget, lam=0.5):
     """argmax lam*rel_i - (1-lam)*max_{j in S} C_ij, ties by index."""
     C, budget = _check(C, budget)
     rel = np.asarray(relevance, dtype=float)
     S, red = [], np.full(len(C), -np.inf)
     for _ in range(budget):
-        score = lam * rel - (1 - lam) * np.where(np.isfinite(red), red, 0.)
+        score = lam * rel - (1 - lam) * np.where(np.isfinite(red), red, 0.0)
         score[S] = -np.inf
-        i = int(np.argmax(score)); S.append(i)
+        i = int(np.argmax(score))
+        S.append(i)
         red = np.maximum(red, C[i])
     return S
 
 
-def facility_location(C, budget, *, weights=None, utilities=None, lam=0.):
+def facility_location(C, budget, *, weights=None, utilities=None, lam=0.0):
     """Lazy greedy for F(S) = sum_i w_i max_{j in S} C+_ij + lam * r(S)."""
     C, budget = _check(C, budget)
     n = len(C)
-    S_pos = np.clip(C, 0., None)
+    S_pos = np.clip(C, 0.0, None)
     w = np.ones(n) if weights is None else np.asarray(weights, dtype=float)
     r = np.zeros(n) if utilities is None else np.asarray(utilities, dtype=float)
     cover = np.zeros(n)
+
     def gain(j):
-        return float(w @ np.maximum(S_pos[:, j] - cover, 0.) + lam * r[j])
+        return float(w @ np.maximum(S_pos[:, j] - cover, 0.0) + lam * r[j])
+
     heap = [(-gain(j), j) for j in range(n)]
     heapq.heapify(heap)
     S = []
@@ -84,13 +88,14 @@ def kdpp_greedy(C, budget, *, quality=None, jitter=1e-9):
     V = np.zeros((budget, n))
     S = []
     for t in range(budget):
-        d2m = d2.copy(); d2m[S] = -np.inf
+        d2m = d2.copy()
+        d2m[S] = -np.inf
         j = int(np.argmax(d2m))
         if d2m[j] <= jitter * 10:
             break
         e = (L[j] - V[:t, j] @ V[:t]) / np.sqrt(d2[j])
         V[t] = e
-        d2 = d2 - e ** 2
+        d2 = d2 - e**2
         S.append(j)
     return S
 
@@ -103,8 +108,10 @@ def farthest_first(C, budget, *, start=None):
     S = [0 if start is None else int(start)]
     dist = 1 - C[S[0]]
     while len(S) < budget:
-        dm = dist.copy(); dm[S] = -np.inf
-        j = int(np.argmax(dm)); S.append(j)
+        dm = dist.copy()
+        dm[S] = -np.inf
+        j = int(np.argmax(dm))
+        S.append(j)
         dist = np.minimum(dist, 1 - C[j])
     return S
 
@@ -116,9 +123,9 @@ class Tests(unittest.TestCase):
         self.C = V @ V.T
 
     def test_mmr_diversifies(self):
-        rel = np.array([1., .99, .98, .5, .5, .1])
-        self.assertNotIn(mmr(rel, self.C, 2, lam=.3)[1], (1, 2))
-        self.assertEqual(mmr(rel, self.C, 2, lam=1.)[1], 1)
+        rel = np.array([1.0, 0.99, 0.98, 0.5, 0.5, 0.1])
+        self.assertNotIn(mmr(rel, self.C, 2, lam=0.3)[1], (1, 2))
+        self.assertEqual(mmr(rel, self.C, 2, lam=1.0)[1], 1)
 
     def test_facility_location_representatives(self):
         S = facility_location(self.C, 2)
@@ -135,14 +142,19 @@ class Tests(unittest.TestCase):
     def test_budget_bounds(self):
         for f in (lambda: facility_location(self.C, 10), lambda: farthest_first(self.C, 10)):
             self.assertEqual(len(f()), 6)
-        with self.assertRaises(ValueError): facility_location(self.C, -1)
+        with self.assertRaises(ValueError):
+            facility_location(self.C, -1)
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--self-test", action="store_true")
     a = p.parse_args()
     if a.self_test:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(Tests)
-        raise SystemExit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1)
+        raise SystemExit(
+            0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+        )
     p.print_help()

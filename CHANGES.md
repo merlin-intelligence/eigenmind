@@ -1,33 +1,37 @@
-# Changes from 1.7 to 1.8
+# Changelog
 
-## Spectral Attention 1.3 → 2.0
-- **Joint reading of eigenvectors.** Each component is embedded with its retained directions (trivial direction included). Default selection = spectral vertices by the Successive Projection Algorithm (at most m+1 per component); optional spectral medoids (k-means on the row-normalized embedding). Both are invariant under any orthonormal change of basis of the retained subspace, so the simple/repeated split is no longer needed. The v1.x rule remains as `selection="tails"`.
-- **Bounded outputs.** Percentage-based selections are capped (`max_per_selection=5`); ties beyond the cap are split by row order, flagged and listed in full. Isolated chunks are reported in `isolated_chunks` and selected only with `select_isolates=True`.
-- **Eigengap extension.** After group completion, the cutoff is extended while the relative eigengap is below `min_relative_gap` (default 0.05), at most `max_gap_extension` directions; final and per-component gaps are reported, with warnings.
-- **New options:** `allocation="per_component"`, `degree_regularization` (Qin–Rohe, scale-invariant), `vertex_min_degree_quantile`.
-- Near-zero eigenvalue warning threshold raised to 1e-8 (relative), so it fires for nearly disconnected components.
-- Tests now exercise `spectral_attention` itself, including the report example and planted themes.
+## 1.8.0
 
-## Semantic Bridges 1.3 → 2.0
-- **Spanning-tree bridges (default).** k−1 bridges forming a maximum spanning tree of single-linkage component affinities (Kruskal), with merge ranks. Alternatives: `top_m`, `all_pairs` (v1.x).
-- Components smaller than `min_component_size` (default 2, i.e. isolates) are reported and not bridged.
-- Optional `min_similarity` and `max_bridges` filters.
-- Vectorized component affinities (O(n²) NumPy) replace the per-pair Python loop.
+Version numbers now follow the Eigenmind report (1.8); the previous release was 0.1.1.
 
-## Supported Diversity 1.0 → 2.0
-- **Exact solver.** `solver="milp"` (default) solves the clique-strengthened integer problem with HiGHS through `scipy.optimize.milp` under `time_limit`; falls back to the best feasible candidate with the MILP dual bound. `solver="lp_greedy"` reproduces v1.0. Output adds `status`, `upper_bound`, `mip`, `candidate_values`.
-- **Bug fix:** `--chunks` is read as UTF-8 (previously the platform default, which fails on Windows for non-ASCII text).
-- Clique cover runs in a single pass over sorted edges (previously a repeated minimum over the uncovered set).
-- Symmetry check is scale-relative, as in the other modules.
+### Added
+- **Spectral Attention** (`spectral_attention`): component representatives, spectral vertices (SPA) and spectral medoids on the spectral embedding of each component; legacy per-eigenvector tails as `selection="tails"`. Complete eigenvalue groups, eigengap extension, optional per-component allocation and degree regularization, capped selections with full tie reporting; isolates reported separately.
+- **Semantic Bridges** (`semantic_bridges`): maximum spanning tree of single-linkage component affinities in the original cosine matrix, with `top_m` and `all_pairs` modes; isolates excluded by default.
+- **Supported Diversity** (`supported_diversity`): budgeted stable set among supported chunks, solved exactly by MILP (HiGHS) with an LP bound and greedy comparators; `solver="lp_greedy"` heuristic.
+- `graph_construction`: `normalize_embeddings` (centring, top-PC removal), `cosine_matrix`, `threshold_graph`, `quantile_threshold`, `knn_graph`, `graph_summary`.
+- `coverage`: Gaussian-kernel facility-location coverage (`build_gaussian_kernel`, `diverse_coverage`).
+- `selection_baselines`: `mmr`, `facility_location`, `kdpp_greedy`, `farthest_first`.
+- `SimilarityGraph`: `summary`, `spectral_attention`, `semantic_bridges`, `supported_diversity`, `diverse_coverage`, `kernel`, baselines, `component_spectra`; `center` and `remove_top` options.
+- CLI entry points `eigenmind-spectral`, `eigenmind-bridges`, `eigenmind-diversity`, `eigenmind-scale-check`.
+- `eigenmind.__version__`.
 
-## New modules
-- `graph_construction.py`: centring, all-but-the-top PC removal, quantile thresholds, mutual k-NN graphs, graph summaries.
-- `selection_baselines.py`: MMR, facility location (lazy greedy), k-DPP greedy MAP, farthest-first.
-- `scale_check.py`: reproduces report Section 10.
+### Changed
+- `SimilarityGraph.selection_tags` now returns the tags `SpectralAttention`, `SemanticBridge`, `SupportedDiversity` (and `DiverseCoverage`), and accepts `utilities`. The pre-1.8 Singular/Hinge/Theta tags are available from the deprecated `legacy_selection_tags`. **Code that matches on tag names must be updated.**
+- `SimilarityGraph` normalizes input vectors itself (pre-1.8 it raised on unnormalized vectors) and builds `W` with a strict threshold (`C_ij > threshold`; pre-1.8 kept `C_ij = threshold`). The default threshold is unchanged at 0.65.
+- Results of `SimilarityGraph` methods are memoized per full set of arguments; chunk text defaults to `payload["text"]` when present.
 
-## Report 1.8
-- New sections: graph construction (anisotropy, centring, k-NN), spectral background with eigengap extension and regularization, related work, behaviour at scale (synthetic output-size and stability check).
-- Spectral Attention rewritten around the spectral embedding, with a basis-invariance proposition; Semantic Bridges around the single-linkage/MST proposition; Supported Diversity with the MILP solver and soft alternatives.
-- Limits consolidated in one section instead of repeated disclaimers; internal notes and change-log sentences removed from the body.
-- Testing plan removed from the report for now; the restructured draft (Stage 0 offline diagnostic, new arms) is kept in `testing_plan_draft_v1_8.tex`.
-- References expanded from 4 to 28, including the smoothness of eigenvalue-cluster projectors (Oustry 1999) alongside Davis–Kahan.
+### Deprecated (removal in 2.0)
+- `find_singular_chunks`, `analyze_laplacian_eigenvectors`, `build_similarity_matrix`, `normalized_laplacian`, `compute_linf_connectivity_optimizer`, `rank_relevant_but_not_obvious_chunks`, `build_conflict_mask`, `theta_subgradient_approximation`, `theta_diversity_picker`, and the `SimilarityGraph` methods `singular_chunks`, `eigenvalue_analysis`, `linf_optimizer`, `hinge_ranking`, `conflict_mask`, `theta_factor`, `theta_diversity`, `legacy_selection_tags`. They keep their pre-1.8 behaviour and emit a `DeprecationWarning`. See the README for replacements.
+
+### Fixed
+- Supported Diversity CLI reads `--chunks` as UTF-8 on every platform.
+
+### Packaging
+- SPDX license expression (`license = "MIT"`), setuptools ≥ 77; Python 3.13 added to the CI matrix and classifiers.
+- `pytest` now also runs the self-tests embedded in each module.
+
+## 0.1.1
+- Version bump.
+
+## 0.1.0
+- PyPI packaging, CI workflows, threshold-validation fix.

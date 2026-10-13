@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,7 +8,8 @@ version = "1.8.0"
 description = "Eigenvalue-based graph computations for semantic selection: Spectral Attention, Semantic Bridges, Supported Diversity."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "François Oustry", email = "francois.oustry@merlin-intelligence.eu" },
     { name = "Marion Schaeffer", email = "marion.schaeffer@merlin-intelligence.eu" },
@@ -26,11 +27,11 @@ keywords = [
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Typing :: Typed",
 ]
@@ -59,6 +60,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 eigenmind = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100

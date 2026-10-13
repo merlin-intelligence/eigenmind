@@ -20,26 +20,19 @@ import pytest
 
 from eigenmind import (
     SimilarityGraph,
-    adjacency_from_cosine,
-    build_gaussian_kernel,
     build_similarity_matrix,
-    component_affinity,
-    component_spectrum,
     cosine_matrix,
-    diverse_coverage,
     facility_location,
     farthest_first,
     find_singular_chunks,
     graph_summary,
     kdpp_greedy,
     knn_graph,
-    medoids,
     mmr,
     normalize_embeddings,
     normalized_laplacian,
     quantile_threshold,
     semantic_bridges,
-    spa,
     spectral_attention,
     supported_diversity,
     threshold_graph,
@@ -55,8 +48,10 @@ def _toy_embeddings(seed: int = 0, n: int = 16, d: int = 32) -> np.ndarray:
 def _planted_two_clusters(seed: int = 1, n_per: int = 8, d: int = 16) -> np.ndarray:
     """Create two well-separated clusters on the unit sphere."""
     rng = np.random.default_rng(seed)
-    c1 = np.zeros(d); c1[0] = 1.0
-    c2 = np.zeros(d); c2[1] = 1.0
+    c1 = np.zeros(d)
+    c1[0] = 1.0
+    c2 = np.zeros(d)
+    c2[1] = 1.0
     v1 = c1 + 0.2 * rng.standard_normal((n_per, d))
     v2 = c2 + 0.2 * rng.standard_normal((n_per, d))
     V = np.vstack([v1, v2])
@@ -77,6 +72,7 @@ def _toy_points(seed: int = 0, n: int = 12):
 
 
 # ─── 1. Graph Construction ───────────────────────────────────────────────────
+
 
 def test_normalize_embeddings_properties():
     V = _toy_embeddings(seed=2, n=10, d=8)
@@ -118,6 +114,7 @@ def test_quantile_and_knn_graph():
 
 # ─── 2. Spectral Attention ────────────────────────────────────────────────────
 
+
 def test_spectral_attention_vertices():
     V = _planted_two_clusters()
     C = cosine_matrix(V)
@@ -129,7 +126,7 @@ def test_spectral_attention_vertices():
     selected = res["selected_chunks"]
     assert len(selected) > 0
     all_kinds = [r["kind"] for c in selected for r in c.get("reasons", [])]
-    assert "spectral_vertex" in all_kinds or "representative" in all_kinds
+    assert "spectral_vertex" in all_kinds
 
 
 def test_spectral_attention_medoids_and_tails():
@@ -147,6 +144,7 @@ def test_spectral_attention_medoids_and_tails():
 
 
 # ─── 3. Semantic Bridges ──────────────────────────────────────────────────────
+
 
 def test_semantic_bridges_spanning_tree():
     V = _planted_two_clusters()  # 2 distinct clusters
@@ -167,6 +165,7 @@ def test_semantic_bridges_spanning_tree():
 
 
 # ─── 4. Supported Diversity ───────────────────────────────────────────────────
+
 
 def test_supported_diversity_milp_solver():
     V = _toy_embeddings(seed=5, n=12, d=8)
@@ -195,6 +194,7 @@ def test_supported_diversity_lp_greedy_fallback():
 
 # ─── 5. Selection Baselines ───────────────────────────────────────────────────
 
+
 def test_selection_baselines():
     V = _toy_embeddings(seed=7, n=10, d=8)
     C = cosine_matrix(V)
@@ -219,6 +219,7 @@ def test_selection_baselines():
 
 
 # ─── 6. High-Level SimilarityGraph API ────────────────────────────────────────
+
 
 def test_similarity_graph_v1_8_integration():
     points = _toy_points(seed=8, n=12)
@@ -251,6 +252,8 @@ def test_similarity_graph_v1_8_integration():
 
 # ─── 7. Backward Compatibility Shims ──────────────────────────────────────────
 
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_backward_compatibility_shims():
     V = _toy_embeddings(seed=9, n=8, d=8)
     W = build_similarity_matrix(V, threshold=0.2)

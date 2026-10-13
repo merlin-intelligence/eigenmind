@@ -19,6 +19,7 @@ Run: python semantic_bridges.py --demo
 Run: python semantic_bridges.py W.npy C.npy --chunks chunks.json --output bridges.json
 A bridge is a potential semantic connection, not an existing edge in W.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,8 +47,8 @@ def adjacency_from_cosine(C, tau=0.5):
     if np.max(np.abs(C), initial=0) > 1 + 1e-10:
         raise ValueError("Cosine entries must lie in [-1, 1]")
     C = (C + C.T) / 2
-    W = np.where(C > tau, C, 0.)
-    np.fill_diagonal(W, 0.)
+    W = np.where(C > tau, C, 0.0)
+    np.fill_diagonal(W, 0.0)
     return W
 
 
@@ -61,10 +62,10 @@ def _validate(W):
         raise ValueError("W must be finite and nonnegative")
     if np.any(np.diag(W) != 0):
         raise ValueError("W must have zero diagonal; remove self-loops explicitly")
-    scale = np.max(W, initial=0.)
+    scale = np.max(W, initial=0.0)
     if scale and not np.allclose(W / scale, W.T / scale, atol=1e-12, rtol=1e-10):
         raise ValueError("Directed W is unsupported: choose symmetrization explicitly")
-    return .5 * W + .5 * W.T
+    return 0.5 * W + 0.5 * W.T
 
 
 def _validate_cosine(C, n):
@@ -73,9 +74,11 @@ def _validate_cosine(C, n):
         raise ValueError("cosine_matrix must be finite with the same shape as W")
     if not np.allclose(C, C.T, atol=1e-12, rtol=1e-10):
         raise ValueError("cosine_matrix must be symmetric")
-    if np.max(np.abs(C), initial=0.) > 1 + 1e-10 or not np.allclose(np.diag(C), 1., atol=1e-10, rtol=0):
+    if np.max(np.abs(C), initial=0.0) > 1 + 1e-10 or not np.allclose(
+        np.diag(C), 1.0, atol=1e-10, rtol=0
+    ):
         raise ValueError("cosine_matrix requires unit diagonal and entries in [-1,1]")
-    return .5 * C + .5 * C.T
+    return 0.5 * C + 0.5 * C.T
 
 
 def component_affinity(C, members):
@@ -101,11 +104,13 @@ def _kruskal(B):
     a, b = np.triu_indices(k, 1)
     order = np.lexsort((b, a, -B[a, b]))
     parent = list(range(k))
+
     def find(x):
         while parent[x] != x:
             parent[x] = parent[parent[x]]
             x = parent[x]
         return x
+
     edges = []
     for t in order:
         ra, rb = find(int(a[t])), find(int(b[t]))
@@ -127,9 +132,19 @@ def _top_m(B, m):
     return sorted(pairs, key=lambda p: (-B[p], p))
 
 
-def semantic_bridges(W, C, chunks=None, *, mode="spanning_tree", top_m=1,
-                     min_component_size=2, max_bridges=None, min_similarity=None,
-                     tie_atol=1e-12, tie_rtol=1e-8):
+def semantic_bridges(
+    W,
+    C,
+    chunks=None,
+    *,
+    mode="spanning_tree",
+    top_m=1,
+    min_component_size=2,
+    max_bridges=None,
+    min_similarity=None,
+    tie_atol=1e-12,
+    tie_rtol=1e-8,
+):
     """Bridge endpoints between connected components of W, using original C.
 
     Component pairs are chosen by `mode` among components with at least
@@ -147,7 +162,9 @@ def semantic_bridges(W, C, chunks=None, *, mode="spanning_tree", top_m=1,
         raise ValueError("min_component_size must be a positive integer")
     if not isinstance(top_m, (int, np.integer)) or top_m < 1:
         raise ValueError("top_m must be a positive integer")
-    if max_bridges is not None and (not isinstance(max_bridges, (int, np.integer)) or max_bridges < 0):
+    if max_bridges is not None and (
+        not isinstance(max_bridges, (int, np.integer)) or max_bridges < 0
+    ):
         raise ValueError("max_bridges must be a nonnegative integer or None")
     if not np.isfinite([tie_atol, tie_rtol]).all() or min(tie_atol, tie_rtol) < 0:
         raise ValueError("Bridge tie tolerances must be finite and nonnegative")
@@ -167,7 +184,7 @@ def semantic_bridges(W, C, chunks=None, *, mode="spanning_tree", top_m=1,
             pairs = _top_m(B, top_m)
         else:
             a, b = np.triu_indices(len(B), 1)
-            pairs = list(zip(a.tolist(), b.tolist()))
+            pairs = list(zip(a.tolist(), b.tolist(), strict=True))
         merge_rank = {p: r for r, p in enumerate(pairs)} if mode == "spanning_tree" else {}
         if min_similarity is not None:
             kept = [p for p in pairs if B[p] >= min_similarity]
@@ -185,36 +202,71 @@ def semantic_bridges(W, C, chunks=None, *, mode="spanning_tree", top_m=1,
         block = C[np.ix_(ia, ib)]
         best = float(block.max())
         tol = tie_atol + tie_rtol * abs(best)
-        found = [{"index_a": int(ia[i]), "index_b": int(ib[j]),
-                  "cosine_similarity": float(block[i, j]),
-                  "gap_to_maximum": float(best - block[i, j])}
-                 for i, j in np.argwhere(best - block <= tol)]
+        found = [
+            {
+                "index_a": int(ia[i]),
+                "index_b": int(ib[j]),
+                "cosine_similarity": float(block[i, j]),
+                "gap_to_maximum": float(best - block[i, j]),
+            }
+            for i, j in np.argwhere(best - block <= tol)
+        ]
         ca, cb = eligible[a], eligible[b]
-        rec = {"id": len(records), "component_a": ca, "component_b": cb,
-               "maximum_cosine_similarity": best, "n_maximizing_pairs": len(found), "pairs": found}
+        rec = {
+            "id": len(records),
+            "component_a": ca,
+            "component_b": cb,
+            "maximum_cosine_similarity": best,
+            "n_maximizing_pairs": len(found),
+            "pairs": found,
+        }
         if mode == "spanning_tree":
             rec["single_linkage_merge_rank"] = merge_rank[(a, b)]
         records.append(rec)
         for p in found:
             for side, other in (("a", "b"), ("b", "a")):
-                reasons[p["index_" + side]].append({
-                    "kind": "component_bridge_endpoint", "bridge_id": rec["id"],
-                    "component": rec["component_" + side], "other_component": rec["component_" + other],
-                    "partner_index": p["index_" + other], "cosine_similarity": p["cosine_similarity"],
-                    "gap_to_maximum": p["gap_to_maximum"]})
-    return {"module": "Semantic Bridges", "version": VERSION,
-            "config": {"mode": mode, "top_m": top_m, "min_component_size": int(min_component_size),
-                       "max_bridges": max_bridges, "min_similarity": min_similarity,
-                       "tie_atol": tie_atol, "tie_rtol": tie_rtol},
-            "n_components": int(count),
-            "components": [{"id": c, "indices": all_members[c].tolist(),
-                            "bridged": c in set(eligible)} for c in range(count)],
-            "excluded_components": excluded,
-            "n_pairs_dropped_by_filters": dropped,
-            "component_bridges": records,
-            "selected_chunks": [{"index": i, "component": int(labels[i]),
-                "text": chunks[i] if chunks is not None else None, "reasons": why}
-                for i, why in enumerate(reasons) if why]}
+                reasons[p["index_" + side]].append(
+                    {
+                        "kind": "component_bridge_endpoint",
+                        "bridge_id": rec["id"],
+                        "component": rec["component_" + side],
+                        "other_component": rec["component_" + other],
+                        "partner_index": p["index_" + other],
+                        "cosine_similarity": p["cosine_similarity"],
+                        "gap_to_maximum": p["gap_to_maximum"],
+                    }
+                )
+    return {
+        "module": "Semantic Bridges",
+        "version": VERSION,
+        "config": {
+            "mode": mode,
+            "top_m": top_m,
+            "min_component_size": int(min_component_size),
+            "max_bridges": max_bridges,
+            "min_similarity": min_similarity,
+            "tie_atol": tie_atol,
+            "tie_rtol": tie_rtol,
+        },
+        "n_components": int(count),
+        "components": [
+            {"id": c, "indices": all_members[c].tolist(), "bridged": c in set(eligible)}
+            for c in range(count)
+        ],
+        "excluded_components": excluded,
+        "n_pairs_dropped_by_filters": dropped,
+        "component_bridges": records,
+        "selected_chunks": [
+            {
+                "index": i,
+                "component": int(labels[i]),
+                "text": chunks[i] if chunks is not None else None,
+                "reasons": why,
+            }
+            for i, why in enumerate(reasons)
+            if why
+        ],
+    }
 
 
 # ---------------------------------------------------------------- tests
@@ -229,34 +281,43 @@ def _pairs(r):
 
 class BridgeTests(unittest.TestCase):
     def test_original_cosine_maximum(self):
-        V = _unit([0., 10., 60., 70.]); C = V @ V.T
-        W = adjacency_from_cosine(C, .9)
+        V = _unit([0.0, 10.0, 60.0, 70.0])
+        C = V @ V.T
+        W = adjacency_from_cosine(C, 0.9)
         r = semantic_bridges(W, C)
         self.assertEqual(r["n_components"], 2)
         self.assertEqual(_pairs(r), [(1, 2)])
-        self.assertAlmostEqual(r["component_bridges"][0]["maximum_cosine_similarity"], np.cos(np.deg2rad(50.)))
-        self.assertEqual(W[1, 2], 0.)
+        self.assertAlmostEqual(
+            r["component_bridges"][0]["maximum_cosine_similarity"], np.cos(np.deg2rad(50.0))
+        )
+        self.assertEqual(W[1, 2], 0.0)
 
     def test_report_example_bridges(self):
-        V = _unit([0, 10, 20, 65, 75, 85]); C = V @ V.T
-        r = semantic_bridges(adjacency_from_cosine(C, .9), C)
+        V = _unit([0, 10, 20, 65, 75, 85])
+        C = V @ V.T
+        r = semantic_bridges(adjacency_from_cosine(C, 0.9), C)
         self.assertEqual(_pairs(r), [(2, 3)])
-        self.assertAlmostEqual(r["component_bridges"][0]["maximum_cosine_similarity"], 0.707107, places=6)
+        self.assertAlmostEqual(
+            r["component_bridges"][0]["maximum_cosine_similarity"], 0.707107, places=6
+        )
 
     def test_spanning_tree_vs_all_pairs(self):
-        V = _unit([0, 5, 40, 45, 80, 85]); C = V @ V.T
-        W = adjacency_from_cosine(C, .99)
+        V = _unit([0, 5, 40, 45, 80, 85])
+        C = V @ V.T
+        W = adjacency_from_cosine(C, 0.99)
         tree = semantic_bridges(W, C)
         self.assertEqual(set(_pairs(tree)), {(1, 2), (3, 4)})
-        self.assertEqual([g["single_linkage_merge_rank"] for g in tree["component_bridges"]], [0, 1])
+        self.assertEqual(
+            [g["single_linkage_merge_rank"] for g in tree["component_bridges"]], [0, 1]
+        )
         self.assertEqual(len(semantic_bridges(W, C, mode="all_pairs")["component_bridges"]), 3)
         self.assertEqual(len(semantic_bridges(W, C, mode="top_m", top_m=1)["component_bridges"]), 2)
         self.assertEqual(len(semantic_bridges(W, C, max_bridges=1)["component_bridges"]), 1)
 
     def test_isolates_excluded_and_ties(self):
-        V = np.array([[1., 0, 0], [1., 0, 0], [0., 1, 0], [0., 1, 0], [0., 0, 1]])
+        V = np.array([[1.0, 0, 0], [1.0, 0, 0], [0.0, 1, 0], [0.0, 1, 0], [0.0, 0, 1]])
         C = V @ V.T
-        W = adjacency_from_cosine(C, .5)
+        W = adjacency_from_cosine(C, 0.5)
         r = semantic_bridges(W, C)
         self.assertEqual(r["excluded_components"], [2])
         self.assertEqual([g["n_maximizing_pairs"] for g in r["component_bridges"]], [4])
@@ -265,7 +326,8 @@ class BridgeTests(unittest.TestCase):
 
     def test_affinity_matches_brute_force(self):
         rng = np.random.default_rng(5)
-        V = rng.normal(size=(30, 4)); V /= np.linalg.norm(V, axis=1, keepdims=True)
+        V = rng.normal(size=(30, 4))
+        V /= np.linalg.norm(V, axis=1, keepdims=True)
         C = V @ V.T
         members = [np.flatnonzero(rng.permutation(30) % 4 == c) for c in range(4)]
         B = component_affinity(C, members)
@@ -275,19 +337,32 @@ class BridgeTests(unittest.TestCase):
                     self.assertAlmostEqual(B[a, b], C[np.ix_(members[a], members[b])].max())
 
     def test_negative_connected_and_validation(self):
-        C = np.array([[1., -1.], [-1., 1.]])
-        W = adjacency_from_cosine(C, .5)
+        C = np.array([[1.0, -1.0], [-1.0, 1.0]])
+        W = adjacency_from_cosine(C, 0.5)
         r = semantic_bridges(W, C, min_component_size=1)
-        self.assertEqual(r["component_bridges"][0]["maximum_cosine_similarity"], -1.)
-        self.assertEqual(semantic_bridges(W, C, min_component_size=1, min_similarity=0.)["component_bridges"], [])
-        self.assertEqual(semantic_bridges(np.array([[0., 1.], [1., 0.]]), np.ones((2, 2)))["component_bridges"], [])
-        with self.assertRaises(ValueError): semantic_bridges(W, np.eye(3))
-        with self.assertRaises(ValueError): semantic_bridges(W, np.zeros((2, 2)))
-        with self.assertRaises(ValueError): semantic_bridges(W, C, mode="other")
+        self.assertEqual(r["component_bridges"][0]["maximum_cosine_similarity"], -1.0)
+        self.assertEqual(
+            semantic_bridges(W, C, min_component_size=1, min_similarity=0.0)["component_bridges"],
+            [],
+        )
+        self.assertEqual(
+            semantic_bridges(np.array([[0.0, 1.0], [1.0, 0.0]]), np.ones((2, 2)))[
+                "component_bridges"
+            ],
+            [],
+        )
+        with self.assertRaises(ValueError):
+            semantic_bridges(W, np.eye(3))
+        with self.assertRaises(ValueError):
+            semantic_bridges(W, np.zeros((2, 2)))
+        with self.assertRaises(ValueError):
+            semantic_bridges(W, C, mode="other")
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument("matrix", nargs="?")
     parser.add_argument("cosine", nargs="?")
     parser.add_argument("--chunks")
@@ -302,11 +377,13 @@ def main():
     args = parser.parse_args()
     if args.self_test:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(BridgeTests)
-        raise SystemExit(0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1)
+        raise SystemExit(
+            0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+        )
     if args.demo:
-        V = _unit([0., 3., 6., 9., 60., 63., 66., 69., 110., 113., 150.])
+        V = _unit([0.0, 3.0, 6.0, 9.0, 60.0, 63.0, 66.0, 69.0, 110.0, 113.0, 150.0])
         C = V @ V.T
-        W = adjacency_from_cosine(C, .95)
+        W = adjacency_from_cosine(C, 0.95)
         chunks = [f"Example chunk {i}" for i in range(len(W))]
     elif args.matrix and args.cosine:
         W = np.load(args.matrix, allow_pickle=False)
@@ -314,9 +391,16 @@ def main():
         chunks = json.loads(Path(args.chunks).read_text(encoding="utf-8")) if args.chunks else None
     else:
         parser.error("Supply W.npy C.npy, --demo, or --self-test")
-    result = semantic_bridges(W, C, chunks, mode=args.mode, top_m=args.top_m,
-                              min_component_size=args.min_component_size,
-                              max_bridges=args.max_bridges, min_similarity=args.min_similarity)
+    result = semantic_bridges(
+        W,
+        C,
+        chunks,
+        mode=args.mode,
+        top_m=args.top_m,
+        min_component_size=args.min_component_size,
+        max_bridges=args.max_bridges,
+        min_similarity=args.min_similarity,
+    )
     encoded = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)
     if args.output:
         Path(args.output).write_text(encoded + "\n", encoding="utf-8")
