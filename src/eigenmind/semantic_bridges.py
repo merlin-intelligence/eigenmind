@@ -4,7 +4,7 @@ Independent companion to Spectral Attention. W is a symmetric nonnegative
 zero-diagonal adjacency matrix; C is the original aligned cosine matrix.
 Requires Python >=3.10, NumPy and SciPy. Does not import spectral_attention.
 
-Version 2.0 (package 1.8). The affinity of two components a, b is
+The affinity of two components a, b is
 beta_ab = max C_ij over i in a, j in b (single-linkage similarity). Instead of
 returning all k(k-1)/2 component pairs, the default returns a maximum
 spanning tree of the component-affinity graph (Kruskal): k-1 bridges, which
@@ -12,11 +12,11 @@ are exactly the merges single-linkage clustering would perform if the graph
 threshold were lowered, in that order. Components below min_component_size
 (default 2, i.e. isolates) are reported separately and not bridged.
 Modes: "spanning_tree" (default), "top_m" (each component's m closest
-partners) and "all_pairs" (v1.x behaviour, for ablation).
+partners) and "all_pairs" (every pair of components).
 
-Run: python semantic_bridges.py --self-test
-Run: python semantic_bridges.py --demo
-Run: python semantic_bridges.py W.npy C.npy --chunks chunks.json --output bridges.json
+Run: eigenmind-bridges --self-test
+Run: eigenmind-bridges --demo
+Run: eigenmind-bridges W.npy C.npy --chunks chunks.json --output bridges.json
 A bridge is a potential semantic connection, not an existing edge in W.
 """
 
@@ -31,41 +31,10 @@ import numpy as np
 from scipy import sparse
 from scipy.sparse.csgraph import connected_components
 
-VERSION = "2.0"
+from eigenmind._version import __version__
+from eigenmind.graph_construction import _validate_adjacency, adjacency_from_cosine
+
 MODES = ("spanning_tree", "top_m", "all_pairs")
-
-
-def adjacency_from_cosine(C, tau=0.5):
-    """Strict threshold, zero diagonal; cosine input must be symmetric."""
-    C = np.asarray(C, dtype=float)
-    if C.ndim != 2 or C.shape[0] != C.shape[1] or not np.isfinite(C).all():
-        raise ValueError("C must be finite and square")
-    if not 0 <= tau < 1:
-        raise ValueError("tau must lie in [0, 1)")
-    if not np.allclose(C, C.T, atol=1e-12, rtol=1e-10):
-        raise ValueError("C must be symmetric")
-    if np.max(np.abs(C), initial=0) > 1 + 1e-10:
-        raise ValueError("Cosine entries must lie in [-1, 1]")
-    C = (C + C.T) / 2
-    W = np.where(C > tau, C, 0.0)
-    np.fill_diagonal(W, 0.0)
-    return W
-
-
-def _validate(W):
-    if sparse.issparse(W):
-        W = W.toarray()
-    W = np.asarray(W, dtype=float)
-    if W.ndim != 2 or W.shape[0] != W.shape[1] or len(W) == 0:
-        raise ValueError("W must be nonempty and square")
-    if not np.isfinite(W).all() or np.any(W < 0):
-        raise ValueError("W must be finite and nonnegative")
-    if np.any(np.diag(W) != 0):
-        raise ValueError("W must have zero diagonal; remove self-loops explicitly")
-    scale = np.max(W, initial=0.0)
-    if scale and not np.allclose(W / scale, W.T / scale, atol=1e-12, rtol=1e-10):
-        raise ValueError("Directed W is unsupported: choose symmetrization explicitly")
-    return 0.5 * W + 0.5 * W.T
 
 
 def _validate_cosine(C, n):
@@ -153,7 +122,7 @@ def semantic_bridges(
     cosine maximizers are returned (ties within tie_atol + tie_rtol|beta|).
     No eigenvectors are computed and W is never modified.
     """
-    W = _validate(W)
+    W = _validate_adjacency(W)
     n = len(W)
     C = _validate_cosine(C, n)
     if mode not in MODES:
@@ -173,6 +142,7 @@ def semantic_bridges(
     count, labels = connected_components(sparse.csr_matrix(W), directed=False)
     all_members = [np.flatnonzero(labels == c) for c in range(count)]
     eligible = [c for c in range(count) if len(all_members[c]) >= min_component_size]
+    eligible_set = set(eligible)
     excluded = [c for c in range(count) if len(all_members[c]) < min_component_size]
     members = [all_members[c] for c in eligible]
     pairs, dropped = [], 0
@@ -238,7 +208,7 @@ def semantic_bridges(
                 )
     return {
         "module": "Semantic Bridges",
-        "version": VERSION,
+        "version": __version__,
         "config": {
             "mode": mode,
             "top_m": top_m,
@@ -250,7 +220,7 @@ def semantic_bridges(
         },
         "n_components": int(count),
         "components": [
-            {"id": c, "indices": all_members[c].tolist(), "bridged": c in set(eligible)}
+            {"id": c, "indices": all_members[c].tolist(), "eligible": c in eligible_set}
             for c in range(count)
         ],
         "excluded_components": excluded,
@@ -292,7 +262,7 @@ class BridgeTests(unittest.TestCase):
         )
         self.assertEqual(W[1, 2], 0.0)
 
-    def test_report_example_bridges(self):
+    def test_worked_example_bridges(self):
         V = _unit([0, 10, 20, 65, 75, 85])
         C = V @ V.T
         r = semantic_bridges(adjacency_from_cosine(C, 0.9), C)
@@ -321,8 +291,10 @@ class BridgeTests(unittest.TestCase):
         r = semantic_bridges(W, C)
         self.assertEqual(r["excluded_components"], [2])
         self.assertEqual([g["n_maximizing_pairs"] for g in r["component_bridges"]], [4])
-        legacy = semantic_bridges(W, C, mode="all_pairs", min_component_size=1)
-        self.assertEqual([g["n_maximizing_pairs"] for g in legacy["component_bridges"]], [4, 2, 2])
+        all_pairs = semantic_bridges(W, C, mode="all_pairs", min_component_size=1)
+        self.assertEqual(
+            [g["n_maximizing_pairs"] for g in all_pairs["component_bridges"]], [4, 2, 2]
+        )
 
     def test_affinity_matches_brute_force(self):
         rng = np.random.default_rng(5)

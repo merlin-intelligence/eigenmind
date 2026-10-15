@@ -1,4 +1,4 @@
-"""Unit and regression tests for Eigenmind v1.8 modules.
+"""Unit and regression tests for Eigenmind modules.
 
 Tests:
   - Graph construction (normalization, top-PC removal, cosine, quantiles, k-NN)
@@ -6,7 +6,7 @@ Tests:
   - Semantic Bridges (spanning tree, top-m, component affinities)
   - Supported Diversity (exact MILP solver via HiGHS, LP-greedy fallback)
   - Selection baselines (MMR, Facility Location, k-DPP, Farthest-First)
-  - High-level SimilarityGraph API and backwards-compatibility shims
+  - High-level SimilarityGraph API
 
 Run with: pytest
 """
@@ -16,21 +16,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 
 from eigenmind import (
     SimilarityGraph,
-    build_similarity_matrix,
     cosine_matrix,
     facility_location,
     farthest_first,
-    find_singular_chunks,
     graph_summary,
     kdpp_greedy,
     knn_graph,
     mmr,
     normalize_embeddings,
-    normalized_laplacian,
     quantile_threshold,
     semantic_bridges,
     spectral_attention,
@@ -138,7 +134,7 @@ def test_spectral_attention_medoids_and_tails():
     res_m = spectral_attention(W, selection="medoids", positive_count=4)
     assert len(res_m["selected_chunks"]) > 0
 
-    # Tails mode (v1.x ablation)
+    # Tails mode
     res_t = spectral_attention(W, selection="tails", positive_count=4)
     assert len(res_t["selected_chunks"]) > 0
 
@@ -248,22 +244,3 @@ def test_similarity_graph_v1_8_integration():
     valid_tags = {"SpectralAttention", "SemanticBridge", "SupportedDiversity", "DiverseCoverage"}
     for t_list in tags.values():
         assert set(t_list).issubset(valid_tags)
-
-
-# ─── 7. Backward Compatibility Shims ──────────────────────────────────────────
-
-
-@pytest.mark.filterwarnings("ignore::DeprecationWarning")
-def test_backward_compatibility_shims():
-    V = _toy_embeddings(seed=9, n=8, d=8)
-    W = build_similarity_matrix(V, threshold=0.2)
-    assert W.shape == (8, 8)
-    assert np.allclose(np.diag(W), 0.0)
-
-    L = normalized_laplacian(W)
-    assert L.shape == (8, 8)
-    assert np.allclose(L, L.T, atol=1e-10)
-
-    points = _toy_points(seed=9, n=8)
-    sing = find_singular_chunks(points, W=W)
-    assert isinstance(sing, list)

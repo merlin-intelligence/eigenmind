@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from types import SimpleNamespace
 
 import numpy as np
@@ -48,7 +49,21 @@ def test_spectral_cache_respects_every_argument(graph):
     assert capped["config"]["max_per_selection"] == 1
     assert uncapped["config"]["max_per_selection"] is None
     assert graph.spectral_attention(min_relative_gap=0.0)["config"]["min_relative_gap"] == 0.0
-    assert graph.spectral_attention(max_per_selection=1) is capped
+    cached = len(graph._cache)
+    assert graph.spectral_attention(max_per_selection=1) == capped
+    assert len(graph._cache) == cached
+
+
+def test_cached_results_are_isolated_from_callers(graph):
+    graph.spectral_attention()["selected_chunks"].clear()
+    graph.semantic_bridges()["selected_chunks"].clear()
+    graph.supported_diversity(budget=3)["selected_indices"].clear()
+    graph.kernel()[:] = 0.0
+    assert graph.spectral_attention()["selected_chunks"]
+    assert graph.semantic_bridges()["selected_chunks"]
+    assert graph.supported_diversity(budget=3)["selected_indices"]
+    assert np.all(np.diag(graph.kernel()) == 1.0)
+    assert any("SpectralAttention" in t for t in graph.selection_tags().values())
 
 
 def test_bridges_cache_respects_min_component_size(graph):
@@ -71,6 +86,8 @@ def test_laplacian_with_isolates(graph):
     L = graph.laplacian()
     assert L.shape == (graph.n, graph.n)
     assert np.isfinite(L).all()
+    assert np.allclose(L, L.T)
+    assert L[18, 18] == 1.0 and L[19, 19] == 1.0  # isolates
     spectra = graph.component_spectra()
     assert [len(s["indices"]) for s in spectra] == [6, 6, 6]
     for s in spectra:
@@ -78,7 +95,10 @@ def test_laplacian_with_isolates(graph):
 
 
 def test_kernel_memoized_per_bandwidth(graph):
-    assert graph.kernel(bandwidth=0.5) is graph.kernel(bandwidth=0.5)
+    K = graph.kernel(bandwidth=0.5)
+    cached = len(graph._cache)
+    assert np.array_equal(graph.kernel(bandwidth=0.5), K)
+    assert len(graph._cache) == cached
     assert not np.allclose(graph.kernel(bandwidth=0.5), graph.kernel(bandwidth=1.0))
 
 
@@ -108,8 +128,64 @@ def test_wrapper_defaults_match_module_defaults():
     assert defaults.SIMILARITY_THRESHOLD == 0.65
 
 
+def test_centering_degenerate_pools():
+    single = [SimpleNamespace(id="a", vector=[1.0, 2.0, 3.0])]
+    duplicates = [SimpleNamespace(id=i, vector=[1.0, 2.0, 3.0]) for i in ("a", "b")]
+    with pytest.warns(RuntimeWarning, match="plain row normalization"):
+        assert SimilarityGraph(single, center=True).n == 1
+    with pytest.warns(RuntimeWarning, match="plain row normalization"):
+        g = SimilarityGraph(duplicates, center=True)
+    assert g.W[0, 1] == pytest.approx(1.0)
+
+
 def test_empty_graph():
     g = SimilarityGraph([])
     assert g.selection_tags() == {}
-    assert g.spectral_attention()["selected_chunks"] == []
     assert g.component_spectra() == []
+    full = SimilarityGraph(_points_with_isolates())
+    for method, kwargs in (
+        ("spectral_attention", {}),
+        ("semantic_bridges", {}),
+        ("supported_diversity", {"budget": 3}),
+    ):
+        empty = getattr(g, method)(**kwargs)
+        assert set(empty) == set(getattr(full, method)(**kwargs)), method
+        json.dumps(empty, allow_nan=False)
+    assert g.spectral_attention()["selected_chunks"] == []
+    assert g.supported_diversity()["selected_indices"] == []
+
+
+def test_duplicate_ids_rejected():
+    points = [
+        SimpleNamespace(id="a", vector=[1.0, 0.0]),
+        SimpleNamespace(id="a", vector=[0.0, 1.0]),
+    ]
+    with pytest.raises(ValueError, match="unique"):
+        SimilarityGraph(points)
+
+
+def test_non_dict_payload_ignored():
+    points = [
+        SimpleNamespace(id=i, vector=v, payload="not a dict")
+        for i, v in enumerate([[1.0, 0.0], [1.0, 0.1]])
+    ]
+    g = SimilarityGraph(points)
+    assert all(c["text"] is None for c in g.spectral_attention()["selected_chunks"])
+    assert g.selection_tags()
+
+
+def test_results_are_json_serializable(graph):
+    for result in (
+        graph.spectral_attention(),
+        graph.semantic_bridges(),
+        graph.supported_diversity(budget=3),
+        graph.diverse_coverage(budget=3),
+    ):
+        json.dumps(result, allow_nan=False)
+    assert [c["eligible"] for c in graph.semantic_bridges()["components"]] == [
+        True,
+        True,
+        True,
+        False,
+        False,
+    ]

@@ -1,4 +1,4 @@
-"""``SimilarityGraph`` — high-level API around the Eigenmind v1.8 selection methods.
+"""``SimilarityGraph`` — high-level API around the Eigenmind selection methods.
 
 Holds the cosine matrix C and the adjacency matrix W of a set of retrieved
 chunks and exposes:
@@ -6,23 +6,18 @@ chunks and exposes:
   2. Semantic Bridges (spanning-tree bridges between components)
   3. Supported Diversity (exact MILP or LP-guided greedy)
 plus the comparison baselines and Gaussian-kernel diverse coverage. Results are
-memoized per full argument set. The pre-1.8 methods (singular, hinge, θ) remain
-available as deprecated methods with their original behaviour.
+memoized per full argument set.
 """
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import numpy as np
 from scipy import sparse
 from scipy.sparse.csgraph import connected_components
 
-from eigenmind._deprecation import warn_deprecated
-from eigenmind.connectivity import (
-    _compute_linf_connectivity_optimizer,
-    _rank_relevant_but_not_obvious_chunks,
-)
 from eigenmind.coverage import build_gaussian_kernel
 from eigenmind.coverage import diverse_coverage as compute_diverse_coverage
 from eigenmind.defaults import (
@@ -46,11 +41,6 @@ from eigenmind.defaults import (
     SPECTRAL_MIN_RELATIVE_GAP,
     SPECTRAL_POSITIVE_COUNT,
     SPECTRAL_SELECTION,
-    THETA_CONFLICT_THRESHOLD,
-    THETA_DIAG_SHIFT,
-    THETA_MAX_ITERS,
-    THETA_RANK,
-    THETA_STEP0,
 )
 from eigenmind.graph_construction import (
     cosine_matrix,
@@ -63,18 +53,8 @@ from eigenmind.selection_baselines import farthest_first as baseline_farthest_fi
 from eigenmind.selection_baselines import kdpp_greedy as baseline_kdpp_greedy
 from eigenmind.selection_baselines import mmr as baseline_mmr
 from eigenmind.semantic_bridges import semantic_bridges
-from eigenmind.singular import (
-    _analyze_laplacian_eigenvectors,
-    _find_singular_chunks,
-    _normalized_laplacian,
-)
 from eigenmind.spectral_attention import component_spectrum, spectral_attention
 from eigenmind.supported_diversity import supported_diversity
-from eigenmind.theta import (
-    _build_conflict_mask,
-    _theta_diversity_picker,
-    _theta_subgradient_approximation,
-)
 
 
 def _freeze(value: Any) -> Any:
@@ -112,6 +92,8 @@ class SimilarityGraph:
         self.points = retrieved_points
         self.threshold = threshold
         self.id_to_point = {p.id: p for p in retrieved_points}
+        if len(self.id_to_point) != len(retrieved_points):
+            raise ValueError("Point ids must be unique; deduplicate retrieved_points first")
         self.ordered_ids = [p.id for p in retrieved_points]
 
         if retrieved_points:
@@ -127,10 +109,6 @@ class SimilarityGraph:
             self.W = np.empty((0, 0))
 
         self._cache: dict[tuple, Any] = {}
-        # Pre-1.8 memoization (deprecated methods)
-        self._x_star: np.ndarray | None = None
-        self._conflict_mask: np.ndarray | None = None
-        self._theta_factor: np.ndarray | None = None
 
     # ─── Basics ───────────────────────────────────────────────────────────────
 
@@ -138,15 +116,21 @@ class SimilarityGraph:
     def n(self) -> int:
         return self.W.shape[0]
 
-    def _memo(self, name: str, compute: Any, **kwargs: Any) -> Any:
+    def _cached(self, name: str, compute: Any, **kwargs: Any) -> Any:
+        """Compute once per (name, arguments); returns the stored object itself."""
         key = (name, _cache_key(**kwargs))
         if key not in self._cache:
             self._cache[key] = compute(**kwargs)
         return self._cache[key]
 
+    def _memo(self, name: str, compute: Any, **kwargs: Any) -> Any:
+        """Memoized result as a deep copy, so callers cannot alter the cache."""
+        return copy.deepcopy(self._cached(name, compute, **kwargs))
+
     def _default_chunks(self) -> list[str] | None:
         """Payload texts when every point has a string ``payload['text']``."""
-        texts = [(getattr(p, "payload", None) or {}).get("text") for p in self.points]
+        payloads = [getattr(p, "payload", None) for p in self.points]
+        texts = [pl.get("text") if isinstance(pl, dict) else None for pl in payloads]
         return texts if texts and all(isinstance(t, str) for t in texts) else None
 
     def summary(self) -> dict[str, Any]:
@@ -155,7 +139,11 @@ class SimilarityGraph:
 
     def laplacian(self) -> np.ndarray:
         """Symmetric normalized Laplacian of W (isolated vertices get a unit diagonal)."""
-        return _normalized_laplacian(self.W)
+        degrees = self.W.sum(axis=1)
+        inv_sqrt = np.zeros_like(degrees)
+        nz = degrees > 0
+        inv_sqrt[nz] = 1.0 / np.sqrt(degrees[nz])
+        return np.eye(self.n) - inv_sqrt[:, None] * self.W * inv_sqrt[None, :]
 
     def component_spectra(
         self,
@@ -197,8 +185,6 @@ class SimilarityGraph:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Run Spectral Attention on W; see :func:`eigenmind.spectral_attention`."""
-        if self.n == 0:
-            return {"selected_chunks": [], "n_components": 0, "config": {}}
         return self._memo(
             "spectral_attention",
             lambda **kw: spectral_attention(self.W, **kw),
@@ -227,8 +213,6 @@ class SimilarityGraph:
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Run Semantic Bridges on (W, C); see :func:`eigenmind.semantic_bridges`."""
-        if self.n == 0:
-            return {"component_bridges": [], "selected_chunks": [], "n_components": 0}
         return self._memo(
             "semantic_bridges",
             lambda **kw: semantic_bridges(self.W, self.C, **kw),
@@ -258,8 +242,6 @@ class SimilarityGraph:
         ``utilities=None`` means unit utilities: a cardinality criterion with no
         relevance or quality signal.
         """
-        if self.n == 0:
-            return {"selected_indices": [], "status": "empty", "selected_utility": 0.0}
         u = np.ones(self.n) if utilities is None else np.asarray(utilities, dtype=float)
         return self._memo(
             "supported_diversity",
@@ -305,15 +287,18 @@ class SimilarityGraph:
 
     # ─── Diverse coverage (Gaussian kernel) ───────────────────────────────────
 
-    def kernel(self, bandwidth: float = COVERAGE_BANDWIDTH) -> np.ndarray:
-        """Gaussian chord kernel K (unit diagonal), memoized per bandwidth."""
-        if self.n == 0:
-            return np.empty((0, 0))
-        return self._memo(
+    def _kernel(self, bandwidth: float) -> np.ndarray:
+        return self._cached(
             "kernel",
             lambda **kw: build_gaussian_kernel(self.embedding_matrix, **kw),
             bandwidth=bandwidth,
         )
+
+    def kernel(self, bandwidth: float = COVERAGE_BANDWIDTH) -> np.ndarray:
+        """Gaussian chord kernel K (unit diagonal), memoized per bandwidth."""
+        if self.n == 0:
+            return np.empty((0, 0))
+        return self._kernel(bandwidth).copy()
 
     def diverse_coverage(
         self,
@@ -326,14 +311,14 @@ class SimilarityGraph:
         """Facility-location coverage over the Gaussian kernel, with an upper bound."""
         if self.n == 0:
             return {
-                "indices": np.array([], dtype=int),
-                "marginal_gains": np.array([], dtype=float),
-                "coverage": np.array([], dtype=float),
+                "indices": [],
+                "marginal_gains": [],
+                "coverage": [],
                 "objective": 0.0,
                 "upper_bound": 0.0,
             }
         return compute_diverse_coverage(
-            self.kernel(bandwidth=bandwidth),
+            self._kernel(bandwidth),
             budget=budget,
             relevance=relevance,
             weights=weights,
@@ -348,14 +333,13 @@ class SimilarityGraph:
         include_coverage: bool = False,
         utilities: np.ndarray | list[float] | None = None,
     ) -> dict[Any, list[str]]:
-        """Return ``{point_id: [tags...]}`` from the v1.8 mechanisms at their defaults.
+        """Return ``{point_id: [tags...]}`` from the three selection mechanisms at their defaults.
 
         Tags are ``SpectralAttention``, ``SemanticBridge``, ``SupportedDiversity``
         and, with ``include_coverage``, ``DiverseCoverage``. ``top_k`` is the budget
         of the budgeted mechanisms (Supported Diversity, coverage); Spectral
         Attention and Semantic Bridges have bounded outputs of their own.
         ``utilities`` is passed to Supported Diversity (unit utilities if None).
-        For the pre-1.8 Singular/Hinge/Theta tags use :meth:`legacy_selection_tags`.
         """
         tags: dict[Any, list[str]] = {}
         if self.n == 0:
@@ -374,103 +358,4 @@ class SimilarityGraph:
         )
         if include_coverage:
             add(self.diverse_coverage(budget=budget)["indices"], "DiverseCoverage")
-        return tags
-
-    # ─── Deprecated pre-1.8 methods (behaviour unchanged) ─────────────────────
-
-    def singular_chunks(self) -> list[Any]:
-        """Deprecated: points at the +/- poles of the first Laplacian eigenvectors."""
-        warn_deprecated("SimilarityGraph.singular_chunks", "use SimilarityGraph.spectral_attention")
-        return _find_singular_chunks(self.points, W=self.W)
-
-    def eigenvalue_analysis(self, output_filename_base: str):
-        """Deprecated: eigenvalue plot and per-chunk eigenvector pole tags (needs [viz])."""
-        warn_deprecated(
-            "SimilarityGraph.eigenvalue_analysis",
-            "use SimilarityGraph.spectral_attention and SimilarityGraph.component_spectra",
-        )
-        return _analyze_laplacian_eigenvectors(
-            self.W, self.id_to_point, self.ordered_ids, output_filename_base
-        )
-
-    def _linf_optimizer(self) -> np.ndarray:
-        if self._x_star is None:
-            self._x_star = _compute_linf_connectivity_optimizer(self.W)
-        return self._x_star
-
-    def linf_optimizer(self) -> np.ndarray:
-        """Deprecated: memoized ℓ∞-connectivity optimizer ``x*``."""
-        warn_deprecated("SimilarityGraph.linf_optimizer", "there is no direct replacement")
-        return self._linf_optimizer()
-
-    def hinge_ranking(self, pole_quantile: float = 0.90):
-        """Deprecated: ranking of relevant-but-not-obvious chunks."""
-        warn_deprecated(
-            "SimilarityGraph.hinge_ranking",
-            "use SimilarityGraph.semantic_bridges for connections between components",
-        )
-        return _rank_relevant_but_not_obvious_chunks(self.W, self._linf_optimizer(), pole_quantile)
-
-    def _conflict(self, threshold: float = THETA_CONFLICT_THRESHOLD) -> np.ndarray:
-        if self._conflict_mask is None:
-            self._conflict_mask = _build_conflict_mask(self.W, threshold)
-        return self._conflict_mask
-
-    def conflict_mask(self, threshold: float = THETA_CONFLICT_THRESHOLD) -> np.ndarray:
-        """Deprecated: conflict graph of the θ diversity method."""
-        warn_deprecated("SimilarityGraph.conflict_mask", "use SimilarityGraph.supported_diversity")
-        return self._conflict(threshold)
-
-    def _theta(
-        self,
-        max_iters: int = THETA_MAX_ITERS,
-        step0: float = THETA_STEP0,
-        diag_shift: float = THETA_DIAG_SHIFT,
-        rank: int = THETA_RANK,
-    ) -> np.ndarray:
-        if self._theta_factor is None:
-            _, _, Y, _, _, _ = _theta_subgradient_approximation(
-                self._conflict(), max_iters=max_iters, step0=step0, diag_shift=diag_shift, rank=rank
-            )
-            self._theta_factor = Y
-        return self._theta_factor
-
-    def theta_factor(
-        self,
-        max_iters: int = THETA_MAX_ITERS,
-        step0: float = THETA_STEP0,
-        diag_shift: float = THETA_DIAG_SHIFT,
-        rank: int = THETA_RANK,
-    ) -> np.ndarray:
-        """Deprecated: memoized low-rank factor Y of the θ approximation."""
-        warn_deprecated("SimilarityGraph.theta_factor", "use SimilarityGraph.supported_diversity")
-        return self._theta(max_iters, step0, diag_shift, rank)
-
-    def theta_diversity(self, k: int = 10, seed: str = "leverage") -> list[int]:
-        """Deprecated: indices of ``k`` diverse chunks from the θ factor."""
-        warn_deprecated(
-            "SimilarityGraph.theta_diversity", "use SimilarityGraph.supported_diversity"
-        )
-        selected, _ = _theta_diversity_picker(self._theta(), k=k, seed=seed)
-        return selected
-
-    def legacy_selection_tags(self, top_k: int = 10) -> dict[Any, list[str]]:
-        """Deprecated: pre-1.8 ``selection_tags`` with Singular/Hinge/Theta tags."""
-        warn_deprecated(
-            "SimilarityGraph.legacy_selection_tags", "use SimilarityGraph.selection_tags"
-        )
-        tags: dict[Any, list[str]] = {}
-        if self.n == 0:
-            return tags
-        for p in _find_singular_chunks(self.points, W=self.W):
-            tags.setdefault(p.id, []).append("Singular")
-        if self.n > 2:
-            ranking, _, _, _, _ = _rank_relevant_but_not_obvious_chunks(
-                self.W, self._linf_optimizer()
-            )
-            for r in ranking[:top_k]:
-                tags.setdefault(self.ordered_ids[r[0]], []).append("Hinge")
-            selected, _ = _theta_diversity_picker(self._theta(), k=top_k)
-            for idx in selected:
-                tags.setdefault(self.ordered_ids[idx], []).append("Theta")
         return tags

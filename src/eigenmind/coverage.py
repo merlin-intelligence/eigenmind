@@ -1,6 +1,5 @@
 """Monotone submodular diverse coverage with facility location and modular relevance.
 
-Implementation of Method 3A from the EigenMind corrected methods specification:
 - Continuous Gaussian chord kernel over unit-normalized embeddings.
 - Greedy forward selection optimizing normalized facility-location coverage plus relevance.
 - Provable (1 - 1/e) approximation ratio under cardinality constraints (Nemhauser et al., 1978).
@@ -84,7 +83,7 @@ def diverse_coverage(
     weights: np.ndarray | list[float] | None = None,
     relevance_weight: float = COVERAGE_RELEVANCE_WEIGHT,
 ) -> dict:
-    """Greedy normalized facility-location coverage plus modular relevance (Method 3A).
+    """Greedy normalized facility-location coverage plus modular relevance.
 
     Maximizes the monotone submodular set function under a cardinality budget b:
         F(S) = sum_{j in T} a_j * max_{i in S} K_{ji} + eta * sum_{i in S} r_i
@@ -113,11 +112,11 @@ def diverse_coverage(
     Returns
     -------
     dict with keys:
-        'indices' : np.ndarray
+        'indices' : list[int]
             Integer indices of selected candidate chunks, ordered by selection step.
-        'marginal_gains' : np.ndarray
+        'marginal_gains' : list[float]
             Marginal objective gains Delta(i | S) at each greedy selection step.
-        'coverage' : np.ndarray
+        'coverage' : list[float]
             Vector of length m containing the final coverage achieved for each target.
         'objective' : float
             Final objective value F(S).
@@ -178,9 +177,9 @@ def diverse_coverage(
     upper = 0.0 if b == 0 else max(value, min(upper1, upper2))
 
     return {
-        "indices": np.array(selected, dtype=int),
-        "marginal_gains": np.array(gains, dtype=float),
-        "coverage": covered,
+        "indices": selected,
+        "marginal_gains": gains,
+        "coverage": covered.tolist(),
         "objective": value,
         "upper_bound": float(upper),
     }

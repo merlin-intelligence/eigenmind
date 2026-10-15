@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eigenmind"
-version = "1.8.0"
+version = "0.2.0"
 description = "Eigenvalue-based graph computations for semantic selection: Spectral Attention, Semantic Bridges, Supported Diversity."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -42,7 +42,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
-viz = ["matplotlib"]
 
 [project.scripts]
 eigenmind-spectral = "eigenmind.spectral_attention:main"

@@ -251,23 +251,24 @@ Regular contributors don't need this section — it's for whoever has publish
 rights on PyPI.
 
 1. **Bump the version** in [`pyproject.toml`](pyproject.toml) (`[project].version`), following [semantic versioning](https://semver.org/) (`MAJOR.MINOR.PATCH`).
-2. **Commit and push** the bump to `main`:
+2. **Update the changelog**: in [`CHANGELOG.md`](CHANGELOG.md), turn the entries under `[Unreleased]` into a section for the new version, dated with the release day (e.g. `## [0.2.0] — 2026-10-15`), and mark breaking changes.
+3. **Commit and push** the bump to `main`:
 
    ```bash
-   git add pyproject.toml
+   git add pyproject.toml CHANGELOG.md
    git commit -m "(chore:release) Bump version to 0.2.0"
    git push origin main
    ```
 
-3. **Tag the release and push the tag** — this is what triggers publishing:
+4. **Tag the release and push the tag** — this is what triggers publishing:
 
    ```bash
    git tag v0.2.0
    git push origin v0.2.0
    ```
 
-4. Pushing a tag matching `v*` triggers the [`Publish to PyPI`](.github/workflows/publish.yml) workflow: it builds the package and uploads it to PyPI automatically. Follow its progress under the repo's **Actions** tab.
-5. **Verify** the new version is live at https://pypi.org/project/eigenmind/.
+5. Pushing a tag matching `v*` triggers the [`Publish to PyPI`](.github/workflows/publish.yml) workflow: it builds the package and uploads it to PyPI automatically. Follow its progress under the repo's **Actions** tab.
+6. **Verify** the new version is live at https://pypi.org/project/eigenmind/.
 
 PyPI releases are permanent: a given version number can never be re-uploaded,
 even to fix a mistake — the only way back is publishing the next patch

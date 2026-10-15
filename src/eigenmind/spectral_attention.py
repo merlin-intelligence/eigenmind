@@ -5,7 +5,7 @@ candidate pool, or prompt-independent attention points from a corpus graph.
 "Attention" means directing a reader's attention, not Transformer attention.
 The graph is supplied by the caller; this module does not certify relevance.
 
-Version 2.0 (package 1.8). Default selection reads the retained eigenvectors
+Default selection reads the retained eigenvectors
 jointly, as a spectral embedding of each component, and returns
   * spectral vertices: extreme points found by the Successive Projection
     Algorithm (SPA), at most m+1 per component for m retained directions;
@@ -13,13 +13,13 @@ jointly, as a spectral embedding of each component, and returns
     row-normalized embedding (Ng-Jordan-Weiss).
 Both rules depend only on the geometry of the embedded point cloud and are
 therefore invariant under any orthonormal change of basis of the retained
-subspace. The v1.x rule (two tails per simple eigenvector, row norms for a
-repeated eigenspace) is kept as selection="tails" for ablation.
+subspace. selection="tails" instead selects the two tails of each simple
+retained eigenvector and the highest row norms of each repeated eigenspace.
 
 Requires Python >=3.10, NumPy and SciPy. Dense reference implementation.
-Run: python spectral_attention.py --self-test
-Run: python spectral_attention.py --demo
-Run: python spectral_attention.py W.npy --chunks chunks.json --output result.json
+Run: eigenmind-spectral --self-test
+Run: eigenmind-spectral --demo
+Run: eigenmind-spectral W.npy --chunks chunks.json --output result.json
 W.npy stores an adjacency matrix, not a cosine Gram matrix.
 """
 
@@ -38,42 +38,10 @@ from scipy.cluster.vq import kmeans2
 from scipy.linalg import block_diag
 from scipy.sparse.csgraph import connected_components
 
-VERSION = "2.0"
+from eigenmind._version import __version__
+from eigenmind.graph_construction import _validate_adjacency, adjacency_from_cosine
+
 SELECTIONS = ("vertices", "medoids", "tails")
-
-
-# ---------------------------------------------------------------- inputs
-def adjacency_from_cosine(C, tau=0.5):
-    """Strict threshold, zero diagonal; cosine input must be symmetric."""
-    C = np.asarray(C, dtype=float)
-    if C.ndim != 2 or C.shape[0] != C.shape[1] or not np.isfinite(C).all():
-        raise ValueError("C must be finite and square")
-    if not 0 <= tau < 1:
-        raise ValueError("tau must lie in [0, 1)")
-    if not np.allclose(C, C.T, atol=1e-12, rtol=1e-10):
-        raise ValueError("C must be symmetric")
-    if np.max(np.abs(C), initial=0) > 1 + 1e-10:
-        raise ValueError("Cosine entries must lie in [-1, 1]")
-    C = (C + C.T) / 2
-    W = np.where(C > tau, C, 0.0)
-    np.fill_diagonal(W, 0.0)
-    return W
-
-
-def _validate(W):
-    if sparse.issparse(W):
-        W = W.toarray()
-    W = np.asarray(W, dtype=float)
-    if W.ndim != 2 or W.shape[0] != W.shape[1] or len(W) == 0:
-        raise ValueError("W must be nonempty and square")
-    if not np.isfinite(W).all() or np.any(W < 0):
-        raise ValueError("W must be finite and nonnegative")
-    if np.any(np.diag(W) != 0):
-        raise ValueError("W must have zero diagonal; remove self-loops explicitly")
-    scale = np.max(W, initial=0.0)
-    if scale and not np.allclose(W / scale, W.T / scale, atol=1e-12, rtol=1e-10):
-        raise ValueError("Directed W is unsupported: choose symmetrization explicitly")
-    return 0.5 * W + 0.5 * W.T
 
 
 # ---------------------------------------------------------------- spectra
@@ -283,7 +251,7 @@ def spectral_attention(
     (None: no cap); ties beyond the cap are split by row order and reported.
     Isolated chunks are reported separately; selected only if select_isolates.
     """
-    W = _validate(W)
+    W = _validate_adjacency(W)
     n = len(W)
     sel = (selection,) if isinstance(selection, str) else tuple(selection)
     if not sel or any(s not in SELECTIONS for s in sel):
@@ -326,7 +294,7 @@ def spectral_attention(
     count, labels = connected_components(sparse.csr_matrix(W), directed=False)
     result = {
         "module": "Spectral Attention",
-        "version": VERSION,
+        "version": __version__,
         "config": {
             "positive_count": int(positive_count),
             "allocation": allocation,
@@ -521,7 +489,7 @@ def spectral_attention(
                     "score_meaning": "squared distance to centroid (row-normalized embedding)",
                 },
             )
-        if "tails" in sel:  # v1.x rule, kept for ablation
+        if "tails" in sel:
             by_group = {}
             for j, gid in retained[c]:
                 by_group.setdefault(gid, []).append(j)
@@ -562,9 +530,6 @@ def spectral_attention(
     return result
 
 
-select_chunks = spectral_attention  # compatibility alias
-
-
 # ---------------------------------------------------------------- tests
 def _unit(deg):
     a = np.deg2rad(deg)
@@ -589,7 +554,7 @@ def _kinds(r, kind):
 
 
 class SelectionTests(unittest.TestCase):
-    def test_report_example_spectral(self):
+    def test_worked_example_spectral(self):
         W = adjacency_from_cosine(
             _unit([-35, -25, -15, 15, 25, 35]) @ _unit([-35, -25, -15, 15, 25, 35]).T, 0.85
         )

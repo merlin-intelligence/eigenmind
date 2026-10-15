@@ -1,22 +1,22 @@
-#!/usr/bin/env python3
 """Supported Diversity: budgeted, supported, pairwise nonadjacent chunks.
 
 Dependencies: numpy, scipy (>=1.9 for milp). W must be symmetric, nonnegative,
 zero-diagonal. Utilities are REQUIRED; the caller defines what is useful.
 Original positive weighted degree defines support, not semantic quality.
 
-Version 2.0 (package 1.8). Default solver="milp": the budgeted maximum-weight
+Default solver="milp": the budgeted maximum-weight
 stable-set problem is solved exactly with HiGHS branch-and-bound
 (scipy.optimize.milp) under a time limit, using the same clique-strengthened
 constraints as the relaxation. If the time limit is reached, the best of the
 MILP incumbent, LP-guided greedy and utility-only greedy is returned with its
-proven gap. solver="lp_greedy" reproduces the v1.x heuristic.
+proven gap. solver="lp_greedy" skips the MILP and returns the best of the
+LP-guided and utility-only greedy selections.
 
 Example:
     result = supported_diversity(W, utilities, budget=12, chunks=texts)
-    python supported_diversity.py W.npy utilities.npy --budget 12 --output out.json
-    python supported_diversity.py --demo
-    python supported_diversity.py --self-test
+    eigenmind-diversity W.npy utilities.npy --budget 12 --output out.json
+    eigenmind-diversity --demo
+    eigenmind-diversity --self-test
 """
 
 import argparse
@@ -31,19 +31,12 @@ import numpy as np
 from scipy import sparse
 from scipy.optimize import Bounds, LinearConstraint, linprog, milp
 
-VERSION = "2.0"
+from eigenmind._version import __version__
+from eigenmind.graph_construction import _validate_adjacency
 
 
 def _validate(W, utilities, budget, min_degree, chunks, relaxation, solver, time_limit):
-    W = np.asarray(W.toarray() if sparse.issparse(W) else W, dtype=float)
-    if W.ndim != 2 or W.shape[0] == 0 or W.shape[0] != W.shape[1]:
-        raise ValueError("W must be a nonempty square matrix")
-    if not np.isfinite(W).all() or (W < 0).any() or np.any(np.diag(W) != 0):
-        raise ValueError("W must be finite, nonnegative and zero-diagonal")
-    scale = np.max(W, initial=0.0)
-    if scale and not np.allclose(W / scale, W.T / scale, atol=1e-12, rtol=1e-10):
-        raise ValueError("W must be symmetric")
-    W = W / 2 + W.T / 2
+    W = _validate_adjacency(W)
     r = np.asarray(utilities, dtype=float)
     if r.shape != (len(W),) or not np.isfinite(r).all() or (r < 0).any():
         raise ValueError("utilities must be a finite nonnegative vector aligned with W")
@@ -237,7 +230,7 @@ def supported_diversity(
     gap = max(0.0, upper - value)
     return {
         "module": "Supported Diversity",
-        "version": VERSION,
+        "version": __version__,
         "config": {
             "budget": int(budget),
             "min_degree": float(min_degree),
@@ -281,7 +274,7 @@ def _demo():
 
 
 class Tests(unittest.TestCase):
-    def test_report_example_diversity(self):
+    def test_worked_example_diversity(self):
         a = np.deg2rad(40)
         V = np.array([[np.cos(-a), np.sin(-a), 0], [1, 0, 0], [np.cos(a), np.sin(a), 0], [0, 0, 1]])
         C = V @ V.T

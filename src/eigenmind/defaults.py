@@ -1,4 +1,4 @@
-"""Default parameter values for Eigenmind graph algorithms (v1.8).
+"""Default parameter values for Eigenmind graph algorithms.
 
 Every public function accepts these as overridable keyword arguments. The
 selection defaults below match the module-level defaults of the three
@@ -37,10 +37,3 @@ DIVERSITY_TIME_LIMIT = 10.0  # seconds
 # ─── Diverse coverage (Gaussian-kernel facility location) ─────────────────
 COVERAGE_BANDWIDTH = 0.5
 COVERAGE_RELEVANCE_WEIGHT = 0.25
-
-# ─── Deprecated pre-1.8 θ diversity (eigenmind.theta) ─────────────────────
-THETA_CONFLICT_THRESHOLD = SIMILARITY_THRESHOLD
-THETA_RANK = 24
-THETA_MAX_ITERS = 400
-THETA_STEP0 = 0.25
-THETA_DIAG_SHIFT = 1e-2

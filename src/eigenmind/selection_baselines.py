@@ -1,8 +1,8 @@
-"""Reference baselines for the Eigenmind evaluation (package 1.8).
+"""Reference baselines to compare with the three selection mechanisms.
 
 Each function returns a list of selected row indices, in selection order, at a
-fixed chunk budget. They are comparison arms for the pull/push experiments,
-not part of the three mechanisms.
+fixed chunk budget. They are comparison baselines, not part of the three
+mechanisms.
 
   * mmr: Maximal Marginal Relevance (Carbonell & Goldstein 1998).
   * facility_location: greedy maximization of
@@ -15,18 +15,15 @@ not part of the three mechanisms.
     a soft, determinant-based redundancy penalty instead of hard exclusion.
   * farthest_first: k-centre greedy in cosine distance (geometric spread).
 
-Requires NumPy. Run: python selection_baselines.py --self-test
+Requires NumPy. The self-tests run under pytest.
 """
 
 from __future__ import annotations
 
-import argparse
 import heapq
 import unittest
 
 import numpy as np
-
-VERSION = "1.0"
 
 
 def _check(C, budget):
@@ -144,17 +141,3 @@ class Tests(unittest.TestCase):
             self.assertEqual(len(f()), 6)
         with self.assertRaises(ValueError):
             facility_location(self.C, -1)
-
-
-if __name__ == "__main__":
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    p.add_argument("--self-test", action="store_true")
-    a = p.parse_args()
-    if a.self_test:
-        suite = unittest.defaultTestLoader.loadTestsFromTestCase(Tests)
-        raise SystemExit(
-            0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
-        )
-    p.print_help()

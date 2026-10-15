@@ -1,49 +1,67 @@
-"""Graph construction helpers for Eigenmind (package 1.8).
+"""Graph construction helpers for Eigenmind.
 
 Embedding cosines are typically anisotropic: most pairs share a large common
 component, so raw cosines concentrate in a narrow band and a single global
 threshold gives either one giant component or a dust of isolates. This module
-provides the preprocessing and graph constructions compared in the report:
+provides the preprocessing and graph constructions:
 
   * normalize_embeddings: unit rows, optional mean-centring and removal of the
     top principal directions ("all-but-the-top", Mu & Viswanath 2018);
-  * threshold_graph: strict cosine threshold (v1.x construction);
+  * threshold_graph: strict cosine threshold;
+  * adjacency_from_cosine: threshold_graph with checks on the cosine matrix;
   * quantile_threshold: threshold chosen as an off-diagonal quantile;
   * knn_graph: k-nearest-neighbour graph, mutual (default) or union;
   * graph_summary: components, isolates and size distribution, to be logged
     before any selection.
 
-Requires NumPy and SciPy. Run: python graph_construction.py --self-test
+Requires NumPy and SciPy. The self-tests run under pytest.
 """
 
 from __future__ import annotations
 
-import argparse
 import unittest
+import warnings
 
 import numpy as np
 from scipy import sparse
 from scipy.sparse.csgraph import connected_components
 
-VERSION = "1.0"
 
+def normalize_embeddings(V, *, center=False, remove_top=0, zero_rtol=1e-10):
+    """Return unit-norm rows after optional centring and top-PC removal.
 
-def normalize_embeddings(V, *, center=False, remove_top=0):
-    """Return unit-norm rows after optional centring and top-PC removal."""
+    Centring and top-PC removal can leave a row (numerically) zero: a single
+    point, identical points, or too few points for remove_top. Such a row has
+    no direction, so preprocessing is then skipped for the whole matrix (rows
+    are only normalized) and a RuntimeWarning is emitted. A row counts as zero
+    when its norm is at most zero_rtol times the largest input row norm.
+    """
     V = np.asarray(V, dtype=float)
     if V.ndim != 2 or not np.isfinite(V).all():
         raise ValueError("V must be a finite 2-D array")
     if not isinstance(remove_top, (int, np.integer)) or remove_top < 0 or remove_top >= V.shape[1]:
         raise ValueError("remove_top must be an integer in [0, dim)")
-    X = V - V.mean(axis=0) if (center or remove_top) else V.copy()
-    if remove_top:
-        _, _, Vt = np.linalg.svd(X, full_matrices=False)
-        P = Vt[:remove_top]
-        X = X - (X @ P.T) @ P
-    norms = np.linalg.norm(X, axis=1, keepdims=True)
-    if np.any(norms == 0):
-        raise ValueError("A row has zero norm after preprocessing")
-    return X / norms
+    if len(V) == 0:
+        return V.copy()
+    raw_norms = np.linalg.norm(V, axis=1, keepdims=True)
+    if np.any(raw_norms == 0):
+        raise ValueError("A row of V has zero norm")
+    if center or remove_top:
+        X = V - V.mean(axis=0)
+        if remove_top:
+            _, _, Vt = np.linalg.svd(X, full_matrices=False)
+            P = Vt[:remove_top]
+            X = X - (X @ P.T) @ P
+        norms = np.linalg.norm(X, axis=1, keepdims=True)
+        if not np.any(norms <= zero_rtol * raw_norms.max()):
+            return X / norms
+        warnings.warn(
+            "Centring/top-PC removal leaves a zero row (single point, identical points or "
+            "too few points for remove_top); falling back to plain row normalization.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return V / raw_norms
 
 
 def cosine_matrix(U):
@@ -62,6 +80,38 @@ def threshold_graph(C, tau):
     W = np.where(C > tau, C, 0.0)
     np.fill_diagonal(W, 0.0)
     return W
+
+
+def adjacency_from_cosine(C, tau=0.5):
+    """threshold_graph after checking that C is a finite symmetric cosine matrix."""
+    C = np.asarray(C, dtype=float)
+    if C.ndim != 2 or C.shape[0] != C.shape[1] or not np.isfinite(C).all():
+        raise ValueError("C must be finite and square")
+    if not np.allclose(C, C.T, atol=1e-12, rtol=1e-10):
+        raise ValueError("C must be symmetric")
+    if np.max(np.abs(C), initial=0) > 1 + 1e-10:
+        raise ValueError("Cosine entries must lie in [-1, 1]")
+    return threshold_graph((C + C.T) / 2, tau)
+
+
+def _validate_adjacency(W):
+    """Check a square, finite, nonnegative, zero-diagonal, symmetric W; return it symmetrized.
+
+    Sparse input is densified. An empty (0 x 0) W is accepted.
+    """
+    if sparse.issparse(W):
+        W = W.toarray()
+    W = np.asarray(W, dtype=float)
+    if W.ndim != 2 or W.shape[0] != W.shape[1]:
+        raise ValueError("W must be square")
+    if not np.isfinite(W).all() or np.any(W < 0):
+        raise ValueError("W must be finite and nonnegative")
+    if np.any(np.diag(W) != 0):
+        raise ValueError("W must have zero diagonal; remove self-loops explicitly")
+    scale = np.max(W, initial=0.0)
+    if scale and not np.allclose(W / scale, W.T / scale, atol=1e-12, rtol=1e-10):
+        raise ValueError("Directed W is unsupported: choose symmetrization explicitly")
+    return 0.5 * W + 0.5 * W.T
 
 
 def quantile_threshold(C, q):
@@ -129,6 +179,25 @@ class Tests(unittest.TestCase):
         U = normalize_embeddings(V, remove_top=1)
         self.assertTrue(np.allclose(np.linalg.norm(U, axis=1), 1))
 
+    def test_degenerate_preprocessing_falls_back(self):
+        rng = np.random.default_rng(3)
+        cases = [
+            (rng.normal(size=(1, 8)), {"center": True}),  # single point
+            (np.tile(rng.normal(size=8), (2, 1)), {"center": True}),  # identical points
+            (rng.normal(size=(3, 8)), {"remove_top": 2}),  # too few points
+        ]
+        for V, kwargs in cases:
+            with self.assertWarns(RuntimeWarning):
+                U = normalize_embeddings(V, **kwargs)
+            self.assertTrue(np.allclose(U, normalize_embeddings(V)))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            normalize_embeddings(rng.normal(size=(5, 8)), center=True)
+
+    def test_zero_input_row_rejected(self):
+        with self.assertRaises(ValueError):
+            normalize_embeddings(np.array([[1.0, 0.0], [0.0, 0.0]]))
+
     def test_knn_mutual_subset_of_union(self):
         rng = np.random.default_rng(2)
         U = normalize_embeddings(rng.normal(size=(40, 5)))
@@ -143,17 +212,3 @@ class Tests(unittest.TestCase):
         s = graph_summary(threshold_graph(C, 0.5))
         self.assertEqual((s["components"], s["isolates"], s["edges"]), (2, 1, 1))
         self.assertAlmostEqual(quantile_threshold(C, 0.5), 0.2)
-
-
-if __name__ == "__main__":
-    p = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    p.add_argument("--self-test", action="store_true")
-    a = p.parse_args()
-    if a.self_test:
-        suite = unittest.defaultTestLoader.loadTestsFromTestCase(Tests)
-        raise SystemExit(
-            0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
-        )
-    p.print_help()

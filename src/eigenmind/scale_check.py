@@ -1,8 +1,7 @@
-"""Reproduce the synthetic scale and stability check of report Section 10.
+"""Synthetic scale and stability check of the three selection mechanisms.
 
 Usage:
-    python scale_check.py                       # v1.8 figures only
-    python scale_check.py --v17 PATH_TO_V1_7    # also v1.7 columns
+    eigenmind-scale-check
 
 Synthetic data: 1,500 unit vectors in R^64 from 30 Gaussian themes with a
 shared common direction; threshold graphs at off-diagonal cosine quantiles.
@@ -10,40 +9,29 @@ A diagnostic of mechanics, not a semantic evaluation.
 """
 
 import argparse
-import importlib.util
 import time
 import warnings
-from pathlib import Path
 
 import numpy as np
 
-HERE = Path(__file__).resolve().parent
-
-
-def load(path, name):
-    spec = importlib.util.spec_from_file_location(name, path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+from eigenmind.graph_construction import (
+    cosine_matrix,
+    graph_summary,
+    normalize_embeddings,
+    quantile_threshold,
+    threshold_graph,
+)
+from eigenmind.semantic_bridges import semantic_bridges
+from eigenmind.spectral_attention import spectral_attention
+from eigenmind.supported_diversity import supported_diversity
 
 
 def main():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--v17", help="folder containing the v1.7 scripts (optional)")
-    a = p.parse_args()
+    p.parse_args()
     warnings.simplefilter("ignore")
-    sa = load(HERE / "spectral_attention.py", "sa")
-    sb = load(HERE / "semantic_bridges.py", "sb")
-    sd = load(HERE / "supported_diversity.py", "sd")
-    gc = load(HERE / "graph_construction.py", "gc")
-    old = None
-    if a.v17:
-        old = (
-            load(Path(a.v17) / "spectral_attention.py", "sa0"),
-            load(Path(a.v17) / "semantic_bridges.py", "sb0"),
-        )
 
     rng = np.random.default_rng(0)
     n, k, dim = 1500, 30, 64
@@ -56,8 +44,8 @@ def main():
     )
 
     def graph(X, q=0.99):
-        C = gc.cosine_matrix(gc.normalize_embeddings(X))
-        return C, gc.threshold_graph(C, gc.quantile_threshold(C, q))
+        C = cosine_matrix(normalize_embeddings(X))
+        return C, threshold_graph(C, quantile_threshold(C, q))
 
     def chosen(r, kinds=None):
         return {
@@ -69,17 +57,14 @@ def main():
     print("== Output size by edge-density quantile")
     for q in (0.99, 0.995, 0.999):
         C, W = graph(X0, q)
-        s = gc.graph_summary(W)
+        s = graph_summary(W)
         line = f"q={q}: components={s['components']} isolates={s['isolates']}"
-        if old:
-            r0, b0 = old[0].spectral_attention(W), old[1].semantic_bridges(W, C)
-            line += f" | v1.7 SA={len(chosen(r0))} SB pairs={len(b0['component_bridges'])} SB chunks={len(chosen(b0))}"
-        r1, b1 = sa.spectral_attention(W), sb.semantic_bridges(W, C)
+        r1, b1 = spectral_attention(W), semantic_bridges(W, C)
         t = time.time()
-        d = sd.supported_diversity(W, np.ones(n), budget=24)
+        d = supported_diversity(W, np.ones(n), budget=24)
         t = time.time() - t
         line += (
-            f" | v1.8 SA={len(chosen(r1))} SB pairs={len(b1['component_bridges'])} SB chunks={len(chosen(b1))}"
+            f" | SA={len(chosen(r1))} SB pairs={len(b1['component_bridges'])} SB chunks={len(chosen(b1))}"
             f" | SD {d['status']} value={d['selected_utility']} ({t:.2f}s)"
         )
         print(line)
@@ -88,26 +73,21 @@ def main():
     C, W = graph(X0)
     variants = {
         "tails capped 1/tail": (
-            lambda W: sa.spectral_attention(
+            lambda W: spectral_attention(
                 W, selection="tails", tail_fraction=1e-4, max_per_selection=1
             ),
             ("lower_tail", "upper_tail"),
         ),
-        "spectral vertices": (lambda W: sa.spectral_attention(W), ("spectral_vertex",)),
+        "spectral vertices": (lambda W: spectral_attention(W), ("spectral_vertex",)),
         "vertices, degree q>=.25": (
-            lambda W: sa.spectral_attention(W, vertex_min_degree_quantile=0.25),
+            lambda W: spectral_attention(W, vertex_min_degree_quantile=0.25),
             ("spectral_vertex",),
         ),
         "spectral medoids": (
-            lambda W: sa.spectral_attention(W, selection="medoids"),
+            lambda W: spectral_attention(W, selection="medoids"),
             ("spectral_medoid",),
         ),
     }
-    if old:
-        variants = {
-            "v1.7 tails": (lambda W: old[0].spectral_attention(W), ("lower_tail", "upper_tail")),
-            **variants,
-        }
     for name, (fn, kinds) in variants.items():
         base = chosen(fn(W), kinds)
         jc, jt = [], []
