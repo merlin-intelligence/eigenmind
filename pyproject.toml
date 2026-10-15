@@ -1,37 +1,53 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "eigenmind"
-version = "0.1.1"
-description = "Eigenvalue-based graph computations for semantic chunk retrieval (similarity graph, spectral analysis, Lovász theta diversity)."
+version = "0.2.0"
+description = "Eigenvalue-based graph computations for semantic selection: Spectral Attention, Semantic Bridges, Supported Diversity."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
+    { name = "François Oustry", email = "francois.oustry@merlin-intelligence.eu" },
     { name = "Marion Schaeffer", email = "marion.schaeffer@merlin-intelligence.eu" },
 ]
-keywords = ["graph", "eigenvalue", "spectral-clustering", "embeddings", "retrieval", "diversity"]
+keywords = [
+    "graph",
+    "eigenvalue",
+    "spectral-attention",
+    "semantic-bridges",
+    "supported-diversity",
+    "embeddings",
+    "retrieval",
+    "diversity",
+]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering",
     "Typing :: Typed",
 ]
 dependencies = [
     "numpy",
-    "scipy",
+    "scipy>=1.9",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff"]
-viz = ["matplotlib"]
+
+[project.scripts]
+eigenmind-spectral = "eigenmind.spectral_attention:main"
+eigenmind-bridges = "eigenmind.semantic_bridges:main"
+eigenmind-diversity = "eigenmind.supported_diversity:main"
+eigenmind-scale-check = "eigenmind.scale_check:main"
 
 [project.urls]
 Homepage = "https://github.com/merlin-intelligence/eigenmind"
@@ -43,6 +59,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 eigenmind = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
